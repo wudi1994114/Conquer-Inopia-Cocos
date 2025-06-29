@@ -1,0 +1,39 @@
+{
+  "engine": "cocos-creator",
+  "version": "3.8.0",
+  "id": "conquer-inopia-cocos",
+  "name": "征服荒芜之地",
+  "description": "一个基于Cocos Creator的2D射击游戏",
+  "author": "Game Developer",
+  "settings": {
+    "assets": {
+      "autoAtlas": true,
+      "compress": true
+    },
+    "physics": {
+      "enabled": true,
+      "gravity": {
+        "x": 0,
+        "y": -320
+      }
+    },
+    "rendering": {
+      "renderMode": "CANVAS",
+      "designResolution": {
+        "width": 960,
+        "height": 640
+      },
+      "fitWidth": false,
+      "fitHeight": true
+    },
+    "scripting": {
+      "typescript": true,
+      "strictMode": true
+    }
+  },
+  "scenes": [
+    "assets/Scenes/MainMenu.fire",
+    "assets/Scenes/Game.fire"
+  ],
+  "startScene": "assets/Scenes/MainMenu.fire"
+} 
