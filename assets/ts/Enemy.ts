@@ -146,19 +146,25 @@ export class Enemy extends Component {
         console.log("💀 敌人开始死亡流程");
         
         // 防止重复死亡
-        if (!this.node.isValid) {
+        if (!this.node || !this.node.isValid) {
             console.log("⚠️ 敌人节点已无效，跳过死亡流程");
             return;
         }
         
         // 通知GameManager自己已死亡
-        if (this.gameManager) {
+        if (this.gameManager && this.gameManager.node && this.gameManager.node.isValid) {
             console.log("📢 通知GameManager移除敌人");
             this.gameManager.removeEnemy(this.node);
+        } else {
+            console.warn("⚠️ GameManager无效，无法通知移除敌人");
         }
         
-        // 销毁自身节点
-        console.log("🗑️ 销毁敌人节点");
-        this.node.destroy();
+        // 安全销毁自身节点
+        try {
+            console.log("🗑️ 销毁敌人节点");
+            this.node.destroy();
+        } catch (error) {
+            console.error("❌ 销毁敌人节点时发生错误:", error);
+        }
     }
 }

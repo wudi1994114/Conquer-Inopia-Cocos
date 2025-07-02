@@ -106,9 +106,7 @@ export class SkillManager extends Component {
         const parentNode = this.getSafeParentNode();
         if (!parentNode || !parentNode.isValid) {
             console.error('❌ SkillManager: 无法找到合适的父节点来创建子弹');
-            if (bullet && bullet.isValid) {
-                bullet.destroy();
-            }
+            this.safeDestroyNode(bullet, '子弹');
             return;
         }
         
@@ -116,9 +114,7 @@ export class SkillManager extends Component {
             bullet.setParent(parentNode);
         } catch (error) {
             console.error('❌ SkillManager: 设置子弹父节点时发生错误:', error);
-            if (bullet && bullet.isValid) {
-                bullet.destroy();
-            }
+            this.safeDestroyNode(bullet, '子弹');
             return;
         }
         
@@ -301,9 +297,7 @@ export class SkillManager extends Component {
         const parentNode = this.getSafeParentNode();
         if (!parentNode || !parentNode.isValid) {
             console.error('❌ SkillManager: 无法找到合适的父节点来创建技能效果');
-            if (skillNode && skillNode.isValid) {
-                skillNode.destroy();
-            }
+            this.safeDestroyNode(skillNode, '技能效果');
             return;
         }
         
@@ -311,9 +305,7 @@ export class SkillManager extends Component {
             skillNode.setParent(parentNode);
         } catch (error) {
             console.error('❌ SkillManager: 设置技能效果父节点时发生错误:', error);
-            if (skillNode && skillNode.isValid) {
-                skillNode.destroy();
-            }
+            this.safeDestroyNode(skillNode, '技能效果');
             return;
         }
 
@@ -387,9 +379,7 @@ export class SkillManager extends Component {
         const parentNode = this.getSafeParentNode();
         if (!parentNode || !parentNode.isValid) {
             console.error(`❌ SkillManager: 无法找到合适的父节点来创建配置化技能 ${skillId}`);
-            if (skillNode && skillNode.isValid) {
-                skillNode.destroy();
-            }
+            this.safeDestroyNode(skillNode, `配置化技能-${skillId}`);
             return;
         }
 
@@ -398,9 +388,7 @@ export class SkillManager extends Component {
             skillNode.setWorldPosition(position.x, position.y, 0);
         } catch (error) {
             console.error(`❌ SkillManager: 设置技能节点父节点或位置时发生错误 ${skillId}:`, error);
-            if (skillNode && skillNode.isValid) {
-                skillNode.destroy();
-            }
+            this.safeDestroyNode(skillNode, `配置化技能-${skillId}`);
             return;
         }
         
@@ -454,11 +442,43 @@ export class SkillManager extends Component {
         });
     }
 
+    /**
+     * 安全销毁节点，防止重复销毁
+     * @param node 要销毁的节点
+     * @param nodeType 节点类型（用于日志）
+     */
+    private safeDestroyNode(node: Node | null, nodeType: string = '节点') {
+        if (!node) {
+            console.warn(`⚠️ SkillManager: 尝试销毁null ${nodeType}`);
+            return;
+        }
+        
+        if (!node.isValid) {
+            console.warn(`⚠️ SkillManager: ${nodeType} 已经无效，跳过销毁`);
+            return;
+        }
+        
+        try {
+            console.log(`🗑️ SkillManager: 安全销毁 ${nodeType}`);
+            node.destroy();
+        } catch (error) {
+            console.error(`❌ SkillManager: 销毁 ${nodeType} 时发生错误:`, error);
+        }
+    }
+
     onDestroy() {
         console.log('🗑️ 技能管理器销毁');
         
         // 取消事件订阅
         EventManager.off(GameEvents.PLAYER_ATTACK, this.onPlayerAttack.bind(this));
+        
+        // 安全清理所有活跃的技能节点
+        this.activeSkillNodes.forEach((nodes, skillId) => {
+            console.log(`🧹 清理技能节点: ${skillId}, 数量: ${nodes.length}`);
+            nodes.forEach((node, index) => {
+                this.safeDestroyNode(node, `${skillId}-${index}`);
+            });
+        });
         
         // 清理技能实例
         this.ownedSkills.clear();

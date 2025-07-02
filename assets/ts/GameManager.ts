@@ -78,9 +78,7 @@ export class GameManager extends Component {
         
         if (!parentNode || !parentNode.isValid) {
             console.error('❌ GameManager: 无法找到合适的父节点来生成敌人');
-            if (enemy && enemy.isValid) {
-                enemy.destroy();
-            }
+            this.safeDestroyNode(enemy, '敌人');
             return;
         }
         
@@ -88,9 +86,7 @@ export class GameManager extends Component {
             enemy.setParent(parentNode);
         } catch (error) {
             console.error('❌ GameManager: 设置敌人父节点时发生错误:', error);
-            if (enemy && enemy.isValid) {
-                enemy.destroy();
-            }
+            this.safeDestroyNode(enemy, '敌人');
             return;
         }
 
@@ -135,8 +131,37 @@ export class GameManager extends Component {
         this.activeEnemies.push(enemy);
     }
 
+    /**
+     * 安全销毁节点，防止重复销毁
+     * @param node 要销毁的节点
+     * @param nodeType 节点类型（用于日志）
+     */
+    private safeDestroyNode(node: Node | null, nodeType: string = '节点') {
+        if (!node) {
+            console.warn(`⚠️ GameManager: 尝试销毁null ${nodeType}`);
+            return;
+        }
+        
+        if (!node.isValid) {
+            console.warn(`⚠️ GameManager: ${nodeType} 已经无效，跳过销毁`);
+            return;
+        }
+        
+        try {
+            console.log(`🗑️ GameManager: 安全销毁 ${nodeType}`);
+            node.destroy();
+        } catch (error) {
+            console.error(`❌ GameManager: 销毁 ${nodeType} 时发生错误:`, error);
+        }
+    }
+
     // 提供给Enemy脚本调用的方法，用于在敌人死亡时将其从列表中移除
     public removeEnemy(enemyNode: Node) {
+        if (!enemyNode) {
+            console.warn("⚠️ GameManager: 尝试移除null敌人");
+            return;
+        }
+        
         const index = this.activeEnemies.indexOf(enemyNode);
         if (index > -1) {
             console.log(`📋 从活跃列表中移除敌人，位置: ${index}，剩余敌人数量: ${this.activeEnemies.length - 1}`);
@@ -144,5 +169,21 @@ export class GameManager extends Component {
         } else {
             console.log("⚠️ 警告：尝试移除不存在的敌人");
         }
+    }
+
+    onDestroy() {
+        console.log('🗑️ GameManager 销毁');
+        
+        // 安全清理所有活跃敌人
+        console.log(`🧹 清理活跃敌人，数量: ${this.activeEnemies.length}`);
+        this.activeEnemies.forEach((enemy, index) => {
+            this.safeDestroyNode(enemy, `敌人-${index}`);
+        });
+        
+        // 清理敌人列表
+        this.activeEnemies.length = 0;
+        
+        // 取消定时器
+        this.unschedule(this.spawnEnemy);
     }
 }
