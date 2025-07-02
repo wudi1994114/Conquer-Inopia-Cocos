@@ -69,23 +69,24 @@ export class SkillManager extends Component {
      */
     private getSafeParentNode(): Node | null {
         // 优先使用当前节点的父节点
-        if (this.node.parent) {
+        if (this.node && this.node.isValid && this.node.parent && this.node.parent.isValid) {
             return this.node.parent;
         }
         
         // 如果父节点不存在，尝试使用场景根节点
-        if (this.node.scene) {
-            console.warn('⚠️ 使用场景根节点作为父节点');
+        if (this.node && this.node.isValid && this.node.scene && this.node.scene.isValid) {
+            console.warn('⚠️ SkillManager: 使用场景根节点作为父节点');
             return this.node.scene;
         }
         
         // 最后尝试寻找任何可用的节点
         const scene = director.getScene();
-        if (scene) {
-            console.warn('⚠️ 使用导演场景作为父节点');
+        if (scene && scene.isValid) {
+            console.warn('⚠️ SkillManager: 使用导演场景作为父节点');
             return scene;
         }
         
+        console.error('❌ SkillManager: 无法找到任何有效的父节点');
         return null;
     }
 
@@ -103,12 +104,23 @@ export class SkillManager extends Component {
         
         // 安全的父节点设置
         const parentNode = this.getSafeParentNode();
-        if (!parentNode) {
-            console.error('❌ 无法找到合适的父节点来创建子弹');
-            bullet.destroy();
+        if (!parentNode || !parentNode.isValid) {
+            console.error('❌ SkillManager: 无法找到合适的父节点来创建子弹');
+            if (bullet && bullet.isValid) {
+                bullet.destroy();
+            }
             return;
         }
-        bullet.setParent(parentNode);
+        
+        try {
+            bullet.setParent(parentNode);
+        } catch (error) {
+            console.error('❌ SkillManager: 设置子弹父节点时发生错误:', error);
+            if (bullet && bullet.isValid) {
+                bullet.destroy();
+            }
+            return;
+        }
         
         // 设置子弹位置
         bullet.setWorldPosition(attackData.position.x, attackData.position.y, 0);
@@ -245,8 +257,20 @@ export class SkillManager extends Component {
 
         console.log(`🔥 激活技能: ${skillInstance.config.name} (等级 ${skillInstance.level})`);
 
+        // 安全获取位置信息
+        let safePosition = position;
+        if (!safePosition) {
+            if (this.node && this.node.isValid) {
+                const worldPos = this.node.worldPosition;
+                safePosition = { x: worldPos.x, y: worldPos.y };
+            } else {
+                console.error(`❌ SkillManager: 节点无效，无法获取位置信息`);
+                safePosition = { x: 0, y: 0 }; // 使用默认位置
+            }
+        }
+
         // 创建配置化的技能效果
-        this.createSkillAttackWithConfig(skillId, position || { x: this.node.worldPosition.x, y: this.node.worldPosition.y }, skillInstance);
+        this.createSkillAttackWithConfig(skillId, safePosition, skillInstance);
 
         // 发布技能激活事件
         EventManager.emit(GameEvents.SKILL_ACTIVATED, {
@@ -275,12 +299,23 @@ export class SkillManager extends Component {
         
         // 安全的父节点设置
         const parentNode = this.getSafeParentNode();
-        if (!parentNode) {
-            console.error('❌ 无法找到合适的父节点来创建技能效果');
-            skillNode.destroy();
+        if (!parentNode || !parentNode.isValid) {
+            console.error('❌ SkillManager: 无法找到合适的父节点来创建技能效果');
+            if (skillNode && skillNode.isValid) {
+                skillNode.destroy();
+            }
             return;
         }
-        skillNode.setParent(parentNode);
+        
+        try {
+            skillNode.setParent(parentNode);
+        } catch (error) {
+            console.error('❌ SkillManager: 设置技能效果父节点时发生错误:', error);
+            if (skillNode && skillNode.isValid) {
+                skillNode.destroy();
+            }
+            return;
+        }
 
         if (position) {
             skillNode.setWorldPosition(position.x, position.y, 0);
@@ -332,20 +367,42 @@ export class SkillManager extends Component {
     private createSkillAttackWithConfig(skillId: string, position: { x: number; y: number }, skillInstance: SkillInstance) {
         const prefab = this.getSkillPrefab(skillId);
         if (!prefab) {
+            console.error(`❌ SkillManager: 无法获取技能预制体 ${skillId}`);
             return;
         }
 
-        const skillNode = instantiate(prefab);
+        let skillNode: Node;
+        try {
+            skillNode = instantiate(prefab);
+            if (!skillNode || !skillNode.isValid) {
+                console.error(`❌ SkillManager: 实例化技能节点失败 ${skillId}`);
+                return;
+            }
+        } catch (error) {
+            console.error(`❌ SkillManager: 实例化技能预制体时发生错误 ${skillId}:`, error);
+            return;
+        }
         
         // 安全的父节点设置
         const parentNode = this.getSafeParentNode();
-        if (!parentNode) {
-            console.error('❌ 无法找到合适的父节点来创建配置化技能');
-            skillNode.destroy();
+        if (!parentNode || !parentNode.isValid) {
+            console.error(`❌ SkillManager: 无法找到合适的父节点来创建配置化技能 ${skillId}`);
+            if (skillNode && skillNode.isValid) {
+                skillNode.destroy();
+            }
             return;
         }
-        skillNode.setParent(parentNode);
-        skillNode.setWorldPosition(position.x, position.y, 0);
+
+        try {
+            skillNode.setParent(parentNode);
+            skillNode.setWorldPosition(position.x, position.y, 0);
+        } catch (error) {
+            console.error(`❌ SkillManager: 设置技能节点父节点或位置时发生错误 ${skillId}:`, error);
+            if (skillNode && skillNode.isValid) {
+                skillNode.destroy();
+            }
+            return;
+        }
         
         // 获取攻击组件并设置配置化属性
         const attackComponent = skillNode.getComponent('BaseAttack') as any; // 使用any避免类型问题

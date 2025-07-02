@@ -62,13 +62,37 @@ export class GameManager extends Component {
         const enemy = instantiate(this.enemyPrefab);
         
         // 安全的父节点设置
-        const parentNode = this.node.parent || this.node.scene || director.getScene();
-        if (!parentNode) {
-            console.error('❌ GameManager：无法找到合适的父节点来生成敌人');
-            enemy.destroy();
+        let parentNode = null;
+        if (this.node && this.node.isValid && this.node.parent && this.node.parent.isValid) {
+            parentNode = this.node.parent;
+        } else if (this.node && this.node.isValid && this.node.scene && this.node.scene.isValid) {
+            parentNode = this.node.scene;
+            console.warn('⚠️ GameManager: 使用场景根节点作为父节点');
+        } else {
+            const scene = director.getScene();
+            if (scene && scene.isValid) {
+                parentNode = scene;
+                console.warn('⚠️ GameManager: 使用导演场景作为父节点');
+            }
+        }
+        
+        if (!parentNode || !parentNode.isValid) {
+            console.error('❌ GameManager: 无法找到合适的父节点来生成敌人');
+            if (enemy && enemy.isValid) {
+                enemy.destroy();
+            }
             return;
         }
-        enemy.setParent(parentNode);
+        
+        try {
+            enemy.setParent(parentNode);
+        } catch (error) {
+            console.error('❌ GameManager: 设置敌人父节点时发生错误:', error);
+            if (enemy && enemy.isValid) {
+                enemy.destroy();
+            }
+            return;
+        }
 
         // 从屏幕边缘随机位置生成
         const screenSize = view.getVisibleSize();
