@@ -624,4 +624,3 @@ export class SkillManager extends Component {
         this.activeSkillNodes.clear();
     }
 } 
-} 
