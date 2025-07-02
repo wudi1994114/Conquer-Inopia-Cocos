@@ -1,0 +1,31 @@
+{
+  "name": "cocos_module",
+  "version": "1.0.0",
+  "description": "Cocos Creator游戏项目 - 包含敌人生成、技能系统和攻击机制",
+  "uuid": "73d00747-bb3d-4a1a-9912-c2965694332e",
+  "creator": {
+    "version": "3.8.6"
+  },
+  "scripts": {
+    "build": "echo 'Use Cocos Creator to build the project'",
+    "preview": "echo 'Use Cocos Creator to preview the project'",
+    "lint": "echo 'TypeScript compilation check'",
+    "clean": "rm -rf build/ temp/ library/"
+  },
+  "keywords": [
+    "cocos-creator",
+    "game",
+    "typescript",
+    "2d-game",
+    "skill-system"
+  ],
+  "author": "Developer",
+  "license": "MIT",
+  "engines": {
+    "cocos-creator": ">=3.8.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "."
+  }
+}
