@@ -26,7 +26,26 @@ export class SkillManager extends Component {
         // 订阅事件
         this.subscribeToEvents();
         
+        // 自动获取基础技能
+        this.initializeBasicSkills();
+        
         console.log('✅ 技能管理器初始化完成');
+    }
+
+    /**
+     * 初始化基础技能
+     */
+    private initializeBasicSkills() {
+        const basicSkills = ['bullet', 'laser', 'fireball', 'freeze', 'flyingDisc', 'ring'];
+        
+        console.log('📚 初始化基础技能...');
+        basicSkills.forEach(skillId => {
+            if (this.acquireSkill(skillId)) {
+                console.log(`✅ 获得基础技能: ${skillId}`);
+            } else {
+                console.warn(`⚠️ 获取基础技能失败: ${skillId}`);
+            }
+        });
     }
 
     /**
@@ -53,15 +72,27 @@ export class SkillManager extends Component {
     }
 
     /**
-     * 处理主要攻击（比如子弹）
+     * 处理主要攻击（所有攻击类型）
      */
     private handlePrimaryAttack(data: PlayerAttackEventData) {
-        if (data.attackType === 'bullet') {
-            const bulletSkill = this.ownedSkills.get('bullet');
-            if (bulletSkill && bulletSkill.isActive) {
-                this.createBulletAttack(data, bulletSkill);
+        console.log(`🎯 处理攻击类型: ${data.attackType}`);
+        
+        // 检查是否拥有该技能，如果没有则自动获取
+        let skillInstance = this.ownedSkills.get(data.attackType);
+        if (!skillInstance) {
+            console.log(`📚 自动获取技能: ${data.attackType}`);
+            if (this.acquireSkill(data.attackType)) {
+                skillInstance = this.ownedSkills.get(data.attackType);
             }
         }
+        
+        if (!skillInstance || !skillInstance.isActive) {
+            console.warn(`⚠️ 技能未激活或不存在: ${data.attackType}`);
+            return;
+        }
+        
+        // 使用统一的技能创建方法
+        this.createSkillAttackWithConfig(data.attackType, data.position, skillInstance);
     }
 
     /**
@@ -404,6 +435,11 @@ export class SkillManager extends Component {
             console.log(`  - 基础伤害: ${skillInstance.config.damage}`);
             console.log(`  - 实际伤害: ${actualDamage}`);
         }
+        
+        // 为非子弹攻击设置运动方向和速度
+        if (skillId !== 'bullet') {
+            this.configureAttackMovement(skillNode, skillId, skillInstance, position);
+        }
 
         // 记录激活的技能节点
         if (!this.activeSkillNodes.has(skillId)) {
@@ -412,6 +448,109 @@ export class SkillManager extends Component {
         this.activeSkillNodes.get(skillId)!.push(skillNode);
 
         console.log(`✨ 创建配置化技能效果: ${skillId} 在位置 ${skillNode.worldPosition}`);
+    }
+
+    /**
+     * 配置攻击的运动属性
+     * @param skillNode 技能节点
+     * @param skillId 技能ID
+     * @param skillInstance 技能实例
+     * @param position 发射位置
+     */
+    private configureAttackMovement(skillNode: Node, skillId: string, skillInstance: SkillInstance, position: { x: number; y: number }) {
+        const rigidbody = skillNode.getComponent(RigidBody2D);
+        if (!rigidbody) {
+            console.warn(`⚠️ ${skillId} 没有RigidBody2D组件，无法设置运动`);
+            return;
+        }
+        
+        const speed = SkillUtils.calculateSkillProperty(skillInstance.config, skillInstance.level, 'speed') || 600;
+        
+        // 根据技能类型设置不同的运动模式
+        switch (skillId) {
+            case 'laser':
+                // 激光直线攻击，朝向最近的敌人或向上
+                this.setLinearMovement(rigidbody, position, speed);
+                break;
+            case 'fireball':
+                // 火球抛物线攻击
+                this.setProjectileMovement(rigidbody, position, speed);
+                break;
+            case 'freeze':
+                // 冰冻效果可能不需要移动，或者缓慢扩散
+                this.setAOEMovement(rigidbody, speed * 0.3);
+                break;
+            case 'flyingDisc':
+                // 飞盘旋转攻击
+                this.setSpinningMovement(rigidbody, position, speed);
+                break;
+            case 'ring':
+                // 圆环扩散攻击
+                this.setRingMovement(rigidbody, speed * 0.5);
+                break;
+            default:
+                // 默认直线运动
+                this.setLinearMovement(rigidbody, position, speed);
+                break;
+        }
+        
+        console.log(`🎮 配置 ${skillId} 运动: 速度=${speed}`);
+    }
+
+    /**
+     * 设置直线运动
+     */
+    private setLinearMovement(rigidbody: RigidBody2D, position: { x: number; y: number }, speed: number) {
+        // 朝向最近的敌人，如果没有敌人则向上
+        const direction = this.getTargetDirection(position) || new Vec2(0, 1);
+        rigidbody.linearVelocity = direction.multiplyScalar(speed);
+    }
+
+    /**
+     * 设置抛物线运动
+     */
+    private setProjectileMovement(rigidbody: RigidBody2D, position: { x: number; y: number }, speed: number) {
+        const direction = this.getTargetDirection(position) || new Vec2(0, 1);
+        // 添加一些向上的分量模拟抛物线
+        direction.y += 0.5;
+        direction.normalize();
+        rigidbody.linearVelocity = direction.multiplyScalar(speed);
+    }
+
+    /**
+     * 设置AOE扩散运动
+     */
+    private setAOEMovement(rigidbody: RigidBody2D, speed: number) {
+        // AOE攻击可能不需要太多移动，或者向四周扩散
+        rigidbody.linearVelocity = new Vec2(0, speed);
+    }
+
+    /**
+     * 设置旋转运动
+     */
+    private setSpinningMovement(rigidbody: RigidBody2D, position: { x: number; y: number }, speed: number) {
+        const direction = this.getTargetDirection(position) || new Vec2(0, 1);
+        rigidbody.linearVelocity = direction.multiplyScalar(speed);
+        // 可以添加角速度让飞盘旋转
+        rigidbody.angularVelocity = 360; // 度/秒
+    }
+
+    /**
+     * 设置圆环扩散运动
+     */
+    private setRingMovement(rigidbody: RigidBody2D, speed: number) {
+        // 圆环可能是向外扩散的
+        rigidbody.linearVelocity = new Vec2(0, speed);
+    }
+
+    /**
+     * 获取目标方向
+     */
+    private getTargetDirection(position: { x: number; y: number }): Vec2 | null {
+        // 简单实现：获取最近敌人的方向
+        // 这里需要访问GameManager或其他方式获取敌人信息
+        // 暂时返回null，使用默认方向
+        return null;
     }
 
     /**
@@ -484,4 +623,5 @@ export class SkillManager extends Component {
         this.ownedSkills.clear();
         this.activeSkillNodes.clear();
     }
+} 
 } 
