@@ -1,4 +1,4 @@
-import { _decorator, Component, Node } from 'cc';
+import { _decorator, Component, Node, Collider2D } from 'cc';
 import { Enemy } from '../Enemy';
 import { AttackSystem, AttackTypeValue } from './AttackSystem';
 import { SkillConfig, SkillInstance, SkillUtils, SkillGlobalConfig } from './skill-config';
@@ -214,5 +214,31 @@ export abstract class BaseAttack extends Component {
     public setDamage(damage: number): void {
         this.damage = damage;
         console.log(`⚙️ ${this.getAttackName()} 伤害值设置为:`, damage);
+    }
+
+    /**
+     * 简化的碰撞检测逻辑
+     * @param selfCollider 自身碰撞器
+     * @param otherCollider 对方碰撞器
+     * @returns 是否应该处理碰撞
+     */
+    protected shouldProcessCollision(selfCollider: Collider2D, otherCollider: Collider2D): boolean {
+        // 检查是否是玩家
+        const isPlayer = otherCollider.node.name.toLowerCase().includes('player') || 
+                        otherCollider.node.parent?.name.toLowerCase().includes('player');
+        
+        if (isPlayer) {
+            console.log(`⚡ ${this.getAttackName()} 撞到玩家，跳过处理`);
+            return false;
+        }
+
+        // 检查是否是敌人
+        const enemyScript = otherCollider.getComponent(Enemy);
+        if (!enemyScript) {
+            console.log(`⚠️ ${this.getAttackName()} 碰撞目标不是敌人:`, otherCollider.node.name);
+            return false;
+        }
+
+        return true;
     }
 } 

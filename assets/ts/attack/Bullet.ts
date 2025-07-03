@@ -154,6 +154,9 @@ export class Bullet extends BaseAttack {
             // 🚨 关键检查：传感器模式
             if (this._collider.sensor === true) {
                 console.error("❌❌❌ 严重错误：子弹碰撞器是传感器模式！不会产生物理碰撞！");
+                // 强制关闭传感器模式
+                this._collider.sensor = false;
+                console.log("🔧 已强制关闭传感器模式");
             } else {
                 console.log("✅ 子弹碰撞器非传感器模式，会产生物理碰撞");
             }
@@ -232,39 +235,36 @@ export class Bullet extends BaseAttack {
         
         console.log("📢 子弹碰撞检测触发！");
         console.log("  - 子弹位置:", this.node.position);
-        console.log("  - 子弹速度:", this._rigidbody ? this._rigidbody.linearVelocity : "无刚体");
         console.log("  - 目标名称:", otherCollider.node.name);
         console.log("  - 目标位置:", otherCollider.node.position);
-        console.log("  - 目标分组:", otherCollider.group);
-        console.log("  - 子弹分组:", selfCollider.group);
         
-        // 检查碰撞的对象类型
+        // 简化判断：直接检查碰撞对象类型
         const enemyScript = otherCollider.getComponent(Enemy);
-        const isPlayer = otherCollider.node.name.toLowerCase().includes('player');
+        const isPlayer = otherCollider.node.name.toLowerCase().includes('player') || 
+                         otherCollider.node.parent?.name.toLowerCase().includes('player');
         
-        console.log("  - 是否为敌人:", !!enemyScript);
-        console.log("  - 是否为玩家:", isPlayer);
-
-        // 如果撞到的是玩家，这不应该发生
+        console.log("  - 是否为敌人组件:", !!enemyScript);
+        console.log("  - 是否为玩家节点:", isPlayer);
+        
+        // 🎯 如果撞到玩家，直接跳过
         if (isPlayer) {
-            console.error("❌ 子弹意外碰撞到玩家！物理分组配置有问题");
-            console.error("  - 检查碰撞矩阵设置");
-            console.error("  - 玩家分组应该是1，子弹分组应该是2");
-            console.error("  - 这两个分组不应该碰撞");
-            return; // 不处理与玩家的碰撞
+            console.log("⚡ 子弹撞到玩家，跳过处理");
+            return;
         }
-
-        // 如果获取到了，说明撞到的是敌人
+        
+        // 🎯 如果撞到敌人，触发伤害效果
         if (enemyScript) {
             this._hasHit = true; // 标记已击中
-            console.log("🎯 子弹击中敌人！");
+            console.log("🎯 子弹击中敌人！开始处理伤害");
             
             const damageSuccessful = this.dealDamageToEnemy(enemyScript, this.getAttackType());
             if (damageSuccessful) {
                 this.markEnemyAsHit(enemyScript.node);
+                console.log("💥 伤害处理成功，子弹准备销毁");
+            } else {
+                console.log("⚠️ 伤害处理失败");
             }
             
-            console.log("💥 子弹准备销毁");
             // 击中敌人后，子弹立即销毁
             this.destroyAttack();
         } else {

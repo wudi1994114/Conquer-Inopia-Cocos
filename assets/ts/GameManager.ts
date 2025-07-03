@@ -91,7 +91,8 @@ export class GameManager extends Component {
             ComponentFixer.fixEnemyComponents(enemy);
             
             // 设置为敌人分组
-            PhysicsGroupsSimple.configureEnemyPhysics(enemy);
+            // 简化：不使用物理分组
+        // PhysicsGroupsSimple.configureEnemyPhysics(enemy);
         } catch (error) {
             console.error('❌ GameManager: 设置敌人父节点时发生错误:', error);
             this.safeDestroyNode(enemy, '敌人');

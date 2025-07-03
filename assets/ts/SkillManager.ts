@@ -155,8 +155,8 @@ export class SkillManager extends Component {
         // 设置子弹位置
         bullet.setWorldPosition(attackData.position.x, attackData.position.y, 0);
         
-        // 设置为玩家攻击分组
-        PhysicsGroupsSimple.configurePlayerAttackPhysics(bullet);
+        // 简化：不使用物理分组，让所有攻击都能正常碰撞
+        // PhysicsGroupsSimple.configurePlayerAttackPhysics(bullet);
         
         // 配置子弹属性
         const bulletComponent = bullet.getComponent('BaseAttack') as any;
@@ -457,8 +457,8 @@ export class SkillManager extends Component {
             // 自动修复缺失的组件
             ComponentFixer.fixMissingComponents(skillNode, `技能-${skillId}`);
             
-            // 设置为玩家攻击分组
-            PhysicsGroupsSimple.configurePlayerAttackPhysics(skillNode);
+            // 简化：不使用物理分组，让所有攻击都能正常碰撞
+            // PhysicsGroupsSimple.configurePlayerAttackPhysics(skillNode);
         } catch (error) {
             console.error(`❌ SkillManager: 设置技能节点父节点或位置时发生错误 ${skillId}:`, error);
             this.safeDestroyNode(skillNode, `配置化技能-${skillId}`);

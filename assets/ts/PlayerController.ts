@@ -41,8 +41,8 @@ export class PlayerController extends Component {
         // 初始化技能系统
         this.initializeSkills();
         
-        // 设置玩家物理分组
-        PhysicsGroupsSimple.configurePlayerPhysics(this.node);
+        // 简化：不使用物理分组
+        // PhysicsGroupsSimple.configurePlayerPhysics(this.node);
         
         // 启动自动攻击
         this.startAutoAttack();
