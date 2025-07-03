@@ -1,6 +1,9 @@
 import { _decorator, Component, Node, Prefab, instantiate, Vec2, RigidBody2D, director } from 'cc';
 import { SKILL_CONFIGS, SkillConfig, SkillInstance, SkillUtils, SkillGlobalConfig } from './attack/skill-config';
 import { EventManager, GameEvents, PlayerAttackEventData } from './EventManager';
+import { ComponentFixer } from './ComponentFixer';
+import { PhysicsGroupsSimple } from './PhysicsGroupsSimple';
+import { GameManager } from './GameManager';
 
 const { ccclass, property } = _decorator;
 
@@ -152,6 +155,9 @@ export class SkillManager extends Component {
         // 设置子弹位置
         bullet.setWorldPosition(attackData.position.x, attackData.position.y, 0);
         
+        // 设置为玩家攻击分组
+        PhysicsGroupsSimple.configurePlayerAttackPhysics(bullet);
+        
         // 配置子弹属性
         const bulletComponent = bullet.getComponent('BaseAttack') as any;
         if (bulletComponent && typeof bulletComponent.setDamage === 'function') {
@@ -159,25 +165,55 @@ export class SkillManager extends Component {
             bulletComponent.setDamage(actualDamage);
         }
 
-        // 设置子弹方向
+        // 设置子弹方向和速度
         const rigidbody = bullet.getComponent(RigidBody2D);
+        console.log('🎯 开始设置子弹速度');
+        console.log('  - 刚体存在:', !!rigidbody);
+        console.log('  - 目标存在:', !!attackData.target);
+        console.log('  - 攻击数据:', attackData);
+        
         if (rigidbody && attackData.target) {
             // 从目标数据中获取位置信息
             const targetPos = attackData.target.position;
+            console.log('  - 玩家位置:', attackData.position);
+            console.log('  - 目标位置:', targetPos);
+            
             const direction = new Vec2(
                 targetPos.x - attackData.position.x, 
                 targetPos.y - attackData.position.y
             ).normalize();
             
+            console.log('  - 计算方向:', direction);
+            
             const speed = SkillUtils.calculateSkillProperty(skillInstance.config, skillInstance.level, 'speed') || 800;
-            (rigidbody as RigidBody2D).linearVelocity = direction.multiplyScalar(speed);
+            console.log('  - 计算速度:', speed);
+            
+            const velocity = direction.multiplyScalar(speed);
+            console.log('  - 最终速度向量:', velocity);
+            
+            rigidbody.linearVelocity = velocity;
+            console.log('  - 设置后的刚体速度:', rigidbody.linearVelocity);
+            
         } else if (rigidbody) {
             // 默认向上射击
+            console.log('  - 使用默认向上射击');
             const speed = SkillUtils.calculateSkillProperty(skillInstance.config, skillInstance.level, 'speed') || 800;
-            (rigidbody as RigidBody2D).linearVelocity = new Vec2(0, speed);
+            console.log('  - 默认速度:', speed);
+            
+            const velocity = new Vec2(0, speed);
+            console.log('  - 默认速度向量:', velocity);
+            
+            rigidbody.linearVelocity = velocity;
+            console.log('  - 设置后的刚体速度:', rigidbody.linearVelocity);
+            
+        } else {
+            console.error('❌ 无法设置子弹速度：缺少刚体组件');
         }
 
         console.log('🔫 创建子弹攻击成功');
+        console.log('  - 子弹世界位置:', bullet.worldPosition);
+        console.log('  - 子弹激活状态:', bullet.active);
+        console.log('  - 设置的速度:', rigidbody ? rigidbody.linearVelocity : '无刚体');
     }
 
     /**
@@ -417,6 +453,12 @@ export class SkillManager extends Component {
         try {
             skillNode.setParent(parentNode);
             skillNode.setWorldPosition(position.x, position.y, 0);
+            
+            // 自动修复缺失的组件
+            ComponentFixer.fixMissingComponents(skillNode, `技能-${skillId}`);
+            
+            // 设置为玩家攻击分组
+            PhysicsGroupsSimple.configurePlayerAttackPhysics(skillNode);
         } catch (error) {
             console.error(`❌ SkillManager: 设置技能节点父节点或位置时发生错误 ${skillId}:`, error);
             this.safeDestroyNode(skillNode, `配置化技能-${skillId}`);
@@ -436,10 +478,8 @@ export class SkillManager extends Component {
             console.log(`  - 实际伤害: ${actualDamage}`);
         }
         
-        // 为非子弹攻击设置运动方向和速度
-        if (skillId !== 'bullet') {
-            this.configureAttackMovement(skillNode, skillId, skillInstance, position);
-        }
+        // 为所有攻击类型设置运动方向和速度
+        this.configureAttackMovement(skillNode, skillId, skillInstance, position);
 
         // 记录激活的技能节点
         if (!this.activeSkillNodes.has(skillId)) {
@@ -468,6 +508,11 @@ export class SkillManager extends Component {
         
         // 根据技能类型设置不同的运动模式
         switch (skillId) {
+            case 'bullet':
+                // 子弹直线攻击，朝向最近的敌人或向上
+                console.log('🎯 配置子弹运动');
+                this.setLinearMovement(rigidbody, position, speed);
+                break;
             case 'laser':
                 // 激光直线攻击，朝向最近的敌人或向上
                 this.setLinearMovement(rigidbody, position, speed);
@@ -503,7 +548,16 @@ export class SkillManager extends Component {
     private setLinearMovement(rigidbody: RigidBody2D, position: { x: number; y: number }, speed: number) {
         // 朝向最近的敌人，如果没有敌人则向上
         const direction = this.getTargetDirection(position) || new Vec2(0, 1);
-        rigidbody.linearVelocity = direction.multiplyScalar(speed);
+        const velocity = direction.multiplyScalar(speed);
+        
+        console.log('🚀 设置直线运动:');
+        console.log('  - 发射位置:', position);
+        console.log('  - 基础速度:', speed);
+        console.log('  - 移动方向:', direction);
+        console.log('  - 最终速度:', velocity);
+        
+        rigidbody.linearVelocity = velocity;
+        console.log('  - 刚体速度确认:', rigidbody.linearVelocity);
     }
 
     /**
@@ -547,9 +601,53 @@ export class SkillManager extends Component {
      * 获取目标方向
      */
     private getTargetDirection(position: { x: number; y: number }): Vec2 | null {
-        // 简单实现：获取最近敌人的方向
-        // 这里需要访问GameManager或其他方式获取敌人信息
-        // 暂时返回null，使用默认方向
+        // 尝试通过场景查找GameManager
+        const scene = this.node.scene;
+        if (!scene) {
+            console.log('  - 无法获取场景，使用默认方向');
+            return null;
+        }
+        
+        const gameManager = scene.getComponentInChildren(GameManager) as GameManager;
+        if (!gameManager || !gameManager.activeEnemies || gameManager.activeEnemies.length === 0) {
+            console.log('  - 未找到GameManager或没有活跃敌人，使用默认方向');
+            return null;
+        }
+        
+        // 寻找最近的敌人
+        let nearestEnemy: Node | null = null;
+        let minDistance = Infinity;
+        
+        for (const enemy of gameManager.activeEnemies) {
+            if (enemy && enemy.isValid) {
+                const enemyPos = enemy.worldPosition;
+                const distance = Math.sqrt(
+                    Math.pow(enemyPos.x - position.x, 2) + 
+                    Math.pow(enemyPos.y - position.y, 2)
+                );
+                
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearestEnemy = enemy;
+                }
+            }
+        }
+        
+        if (nearestEnemy) {
+            const enemyPos = nearestEnemy.worldPosition;
+            const direction = new Vec2(
+                enemyPos.x - position.x,
+                enemyPos.y - position.y
+            ).normalize();
+            
+            console.log('  - 找到最近敌人，距离:', minDistance.toFixed(1));
+            console.log('  - 敌人位置:', enemyPos);
+            console.log('  - 计算方向:', direction);
+            
+            return direction;
+        }
+        
+        console.log('  - 没有有效敌人，使用默认方向');
         return null;
     }
 

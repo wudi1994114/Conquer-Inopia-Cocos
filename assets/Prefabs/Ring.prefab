@@ -1,7 +1,7 @@
 [
   {
     "__type__": "cc.Prefab",
-    "_name": "DrawRing",
+    "_name": "Ring",
     "_objFlags": 0,
     "__editorExtras__": {},
     "_native": "",
@@ -13,7 +13,7 @@
   },
   {
     "__type__": "cc.Node",
-    "_name": "DrawRing",
+    "_name": "Ring",
     "_objFlags": 0,
     "__editorExtras__": {},
     "_parent": null,
@@ -242,7 +242,7 @@
     },
     "damage": 10,
     "expandSpeed": 150,
-    "initialSize": 0,
+    "initialSize": 50,
     "maxSize": 1000,
     "_id": ""
   },

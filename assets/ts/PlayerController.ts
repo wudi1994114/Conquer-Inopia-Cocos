@@ -2,6 +2,7 @@ import { _decorator, Component, Node, input, Input, EventKeyboard, KeyCode, Rigi
 import { GameManager } from './GameManager';
 import { EventManager, GameEvents, emitPlayerAttack, TargetData } from './EventManager';
 import { SkillManager } from './SkillManager';
+import { PhysicsGroupsSimple } from './PhysicsGroupsSimple';
 
 const { ccclass, property } = _decorator;
 
@@ -39,6 +40,9 @@ export class PlayerController extends Component {
         
         // 初始化技能系统
         this.initializeSkills();
+        
+        // 设置玩家物理分组
+        PhysicsGroupsSimple.configurePlayerPhysics(this.node);
         
         // 启动自动攻击
         this.startAutoAttack();

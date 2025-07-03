@@ -1,5 +1,7 @@
 import { _decorator, Component, Node, Prefab, instantiate, Vec2, view, director } from 'cc';
 import { Enemy } from './Enemy';
+import { ComponentFixer } from './ComponentFixer';
+import { PhysicsGroupsSimple } from './PhysicsGroupsSimple';
 
 const { ccclass, property } = _decorator;
 
@@ -84,6 +86,12 @@ export class GameManager extends Component {
         
         try {
             enemy.setParent(parentNode);
+            
+            // 自动修复敌人缺失的组件
+            ComponentFixer.fixEnemyComponents(enemy);
+            
+            // 设置为敌人分组
+            PhysicsGroupsSimple.configureEnemyPhysics(enemy);
         } catch (error) {
             console.error('❌ GameManager: 设置敌人父节点时发生错误:', error);
             this.safeDestroyNode(enemy, '敌人');
