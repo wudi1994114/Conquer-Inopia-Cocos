@@ -530,8 +530,8 @@ export class SkillManager extends Component {
                 this.setSpinningMovement(rigidbody, position, speed);
                 break;
             case 'ring':
-                // 圆环扩散攻击
-                this.setRingMovement(rigidbody, speed * 0.5);
+                // 圆环是原地扩散，不需要设置速度
+                this.setRingMovement(rigidbody, 0);
                 break;
             default:
                 // 默认直线运动

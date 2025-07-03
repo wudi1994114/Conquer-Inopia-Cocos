@@ -20,26 +20,29 @@ export abstract class BaseAttack extends Component {
     protected _hitEnemies: Set<Node> = new Set(); // 记录已击中的敌人，防止重复伤害
 
     onLoad() {
-        console.log(`🎯 ${this.getAttackName()} 攻击初始化开始`);
-        
         // 获取统一攻击版本号
         this._version = AttackSystem.getNextAttackVersion();
-        console.log(`🏷️ ${this.getAttackName()} 获得攻击版本号:`, this._version);
         
         // 调用子类的初始化方法
         this.onAttackLoad();
-        
-        console.log(`✅ ${this.getAttackName()} 攻击初始化完成`);
-        console.log(`  - 伤害值:`, this.damage);
-        console.log(`  - 攻击版本号:`, this._version);
     }
 
     start() {
-        console.log(`🚀 ${this.getAttackName()} 攻击开始执行`);
+        // 检查是否有敌人，没有敌人就不执行攻击开始逻辑
+        if (!this.shouldExecuteAttack()) {
+            console.log(`⚠️ ${this.getAttackName()} 开始时没有敌人，跳过攻击开始逻辑`);
+            return;
+        }
+        
         this.onAttackStart();
     }
 
     update(deltaTime: number) {
+        // 检查是否有敌人，没有敌人就不执行攻击更新逻辑
+        if (!this.shouldExecuteAttack()) {
+            return;
+        }
+        
         this.onAttackUpdate(deltaTime);
     }
 
@@ -56,17 +59,9 @@ export abstract class BaseAttack extends Component {
         // 使用全局调控后的实际伤害
         const actualDamage = SkillGlobalConfig.getActualDamage(this.damage);
         
-        console.log(`💥 ${this.getAttackName()} 尝试攻击敌人:`, enemy.node.name);
-        console.log(`  - 基础伤害:`, this.damage);
-        console.log(`  - 实际伤害:`, actualDamage);
-        console.log(`  - 攻击版本号:`, attackVersion);
-        console.log(`  - 敌人当前血量:`, enemy.getCurrentHealth());
-        
         const damageSuccessful = enemy.takeDamage(actualDamage, attackType, attackVersion);
         
         if (damageSuccessful) {
-            console.log(`✅ ${this.getAttackName()} 伤害生效`);
-            
             // 发布攻击命中事件
             EventManager.emit(GameEvents.ATTACK_HIT, {
                 attackType: this.getAttackType(),
@@ -78,8 +73,6 @@ export abstract class BaseAttack extends Component {
             this.onDamageDealt(enemy);
             return true;
         } else {
-            console.log(`❌ ${this.getAttackName()} 伤害被阻止（版本号重复或其他原因）`);
-            
             // 发布攻击未命中事件
             EventManager.emit(GameEvents.ATTACK_MISS, {
                 attackType: this.getAttackType(),
@@ -117,13 +110,41 @@ export abstract class BaseAttack extends Component {
     }
 
     /**
+     * 检测场景中是否有敌人
+     * @returns 是否有敌人存在
+     */
+    protected hasEnemiesAvailable(): boolean {
+        const enemies = this.getAllEnemies();
+        const hasEnemies = enemies.length > 0;
+        
+        if (!hasEnemies) {
+            console.log(`⚠️ ${this.getAttackName()} 检测到场景中没有敌人，跳过攻击`);
+        }
+        
+        return hasEnemies;
+    }
+
+    /**
+     * 检测是否应该执行攻击逻辑
+     * 包含敌人检测和其他通用检测
+     * @returns 是否应该执行攻击
+     */
+    protected shouldExecuteAttack(): boolean {
+        // 检查是否有敌人
+        if (!this.hasEnemiesAvailable()) {
+            return false;
+        }
+        
+        // 可以在这里添加其他通用的攻击前检测逻辑
+        // 例如：检查游戏是否暂停、检查攻击是否还有效等
+        
+        return true;
+    }
+
+    /**
      * 销毁攻击
      */
     protected destroyAttack(): void {
-        console.log(`🗑️ 销毁 ${this.getAttackName()} 攻击`);
-        console.log(`  - 攻击版本号:`, this._version);
-        console.log(`  - 总击中敌人数量:`, this._hitEnemies.size);
-        
         this.onAttackDestroy();
         
         if (this.node && this.node.isValid) {
@@ -132,7 +153,6 @@ export abstract class BaseAttack extends Component {
     }
 
     onDestroy() {
-        console.log(`🔚 ${this.getAttackName()} 组件销毁`);
         this._hitEnemies.clear();
         this.onAttackComponentDestroy();
     }
