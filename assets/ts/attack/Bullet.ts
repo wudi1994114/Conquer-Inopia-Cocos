@@ -98,6 +98,9 @@ export class Bullet extends BaseAttack {
             }
         }
         
+        // 🩺 碰撞诊断 - 强制检查碰撞设置
+        this.performCollisionDiagnostic();
+        
         // 3秒后自动销毁，防止子弹飞出屏幕后永远存在，造成性能浪费
         this.scheduleOnce(() => {
             console.log("⏰ 子弹超时，自动销毁");
@@ -105,6 +108,91 @@ export class Bullet extends BaseAttack {
         }, 3);
         
         console.log("🚀 子弹start完成");
+    }
+
+    /**
+     * 碰撞诊断检查
+     */
+    private performCollisionDiagnostic(): void {
+        console.log("🩺 === 子弹碰撞诊断开始 ===");
+        
+        // 检查刚体设置
+        if (this._rigidbody) {
+            console.log("✅ 子弹刚体存在");
+            console.log("  - 子弹刚体分组:", this._rigidbody.group);
+            console.log("  - 子弹碰撞监听:", this._rigidbody.enabledContactListener);
+            console.log("  - 子弹连续碰撞:", this._rigidbody.bullet);
+            console.log("  - 子弹刚体启用:", this._rigidbody.enabled);
+            
+            // 🚨 关键检查：子弹分组是否是2
+            if (this._rigidbody.group !== 2) {
+                console.error("❌❌❌ 严重错误：子弹刚体分组不是2！当前分组:", this._rigidbody.group);
+                console.error("应该是PLAYER_ATTACK(2)，但实际是:", this._rigidbody.group);
+            } else {
+                console.log("✅ 子弹刚体分组正确：PLAYER_ATTACK(2)");
+            }
+        } else {
+            console.error("❌ 刚体不存在！");
+        }
+        
+        // 检查碰撞器设置
+        if (this._collider) {
+            console.log("✅ 子弹碰撞器存在");
+            console.log("  - 子弹碰撞器分组:", this._collider.group);
+            console.log("  - 子弹碰撞器启用:", this._collider.enabled);
+            console.log("  - 子弹传感器模式:", this._collider.sensor);
+            console.log("  - 子弹碰撞器类型:", this._collider.constructor.name);
+            
+            // 🚨 关键检查：子弹碰撞器分组是否是2
+            if (this._collider.group !== 2) {
+                console.error("❌❌❌ 严重错误：子弹碰撞器分组不是2！当前分组:", this._collider.group);
+                console.error("应该是PLAYER_ATTACK(2)，但实际是:", this._collider.group);
+            } else {
+                console.log("✅ 子弹碰撞器分组正确：PLAYER_ATTACK(2)");
+            }
+            
+            // 🚨 关键检查：传感器模式
+            if (this._collider.sensor === true) {
+                console.error("❌❌❌ 严重错误：子弹碰撞器是传感器模式！不会产生物理碰撞！");
+            } else {
+                console.log("✅ 子弹碰撞器非传感器模式，会产生物理碰撞");
+            }
+        } else {
+            console.error("❌ 碰撞器不存在！");
+        }
+        
+        // 检查场景中的敌人
+        const scene = this.node.scene;
+        if (scene) {
+            const enemies = scene.getComponentsInChildren('Enemy');
+            console.log(`🎯 场景中敌人数量: ${enemies.length}`);
+            
+            if (enemies.length > 0) {
+                const firstEnemy = enemies[0];
+                const enemyCollider = firstEnemy.getComponent(Collider2D);
+                const enemyRigidbody = firstEnemy.getComponent(RigidBody2D);
+                
+                console.log("🔍 第一个敌人信息:");
+                console.log("  - 敌人位置:", firstEnemy.node.worldPosition);
+                console.log("  - 敌人分组:", enemyRigidbody ? enemyRigidbody.group : '无刚体');
+                console.log("  - 敌人碰撞器分组:", enemyCollider ? enemyCollider.group : '无碰撞器');
+                console.log("  - 敌人碰撞器启用:", enemyCollider ? enemyCollider.enabled : '无碰撞器');
+                
+                // 计算距离
+                const distance = Vec3.distance(this.node.worldPosition, firstEnemy.node.worldPosition);
+                console.log("  - 与敌人距离:", distance.toFixed(2));
+                
+                if (distance < 200) {
+                    console.log("⚡ 距离很近，应该很快发生碰撞");
+                } else {
+                    console.log("📏 距离较远，需要等待子弹飞行");
+                }
+            } else {
+                console.warn("⚠️ 场景中没有敌人！");
+            }
+        }
+        
+        console.log("🩺 === 子弹碰撞诊断完成 ===");
     }
 
     protected onAttackUpdate(deltaTime: number): void {
