@@ -1,10 +1,53 @@
-import { _decorator, Component, Node, Collider2D } from 'cc';
+import { _decorator, Component, Node, Collider2D, Vec3, Vec2, RigidBody2D } from 'cc';
 import { Enemy } from '../Enemy';
 import { AttackSystem, AttackTypeValue } from './AttackSystem';
 import { SkillConfig, SkillInstance, SkillUtils, SkillGlobalConfig } from './skill-config';
 import { EventManager, GameEvents, PlayerAttackEventData } from '../EventManager';
+import { GameManager } from '../GameManager';
 
 const { ccclass, property } = _decorator;
+
+/**
+ * 瞄准模式枚举
+ */
+export enum AimingMode {
+    NONE = 'none',                    // 无瞄准，使用默认方向
+    NEAREST_ENEMY = 'nearestEnemy',   // 瞄准最近的敌人
+    MANUAL_TARGET = 'manualTarget',   // 手动指定目标位置
+    FIXED_DIRECTION = 'fixedDirection' // 固定方向发射
+}
+
+/**
+ * 运动模式枚举
+ */
+export enum MovementMode {
+    LINEAR = 'linear',           // 直线运动
+    PROJECTILE = 'projectile',   // 抛物线运动
+    TRACKING = 'tracking',       // 追踪运动
+    CUSTOM = 'custom'           // 自定义运动（子类实现）
+}
+
+/**
+ * 瞄准配置接口
+ */
+export interface AimingConfig {
+    mode: AimingMode;
+    movementMode: MovementMode;
+    manualTarget?: Vec3;          // 手动目标位置
+    fixedDirection?: Vec2;        // 固定方向向量
+    speed: number;                // 移动速度
+    useWorldCoordinates: boolean; // 是否使用世界坐标计算
+}
+
+/**
+ * 瞄准结果接口
+ */
+export interface AimingResult {
+    success: boolean;             // 瞄准是否成功
+    targetPosition?: Vec3;        // 目标位置
+    direction: Vec2;              // 移动方向向量
+    velocity: Vec2;               // 速度向量
+}
 
 /**
  * 攻击基类 - 所有攻击类型的抽象父类
@@ -18,10 +61,15 @@ export abstract class BaseAttack extends Component {
 
     protected _version: number = 0; // 攻击版本号
     protected _hitEnemies: Set<Node> = new Set(); // 记录已击中的敌人，防止重复伤害
+    
+    // ========== 瞄准系统属性 ==========
+    protected _aimingConfig: AimingConfig | null = null; // 瞄准配置
+    protected _targetPosition: Vec3 = new Vec3(); // 目标位置
+    protected _direction: Vec2 = new Vec2(); // 移动方向
 
     onLoad() {
-        // 获取统一攻击版本号
-        this._version = AttackSystem.getNextAttackVersion();
+        // 获取该攻击类型的版本号
+        this._version = AttackSystem.getNextAttackVersion(this.getAttackType());
         
         // 调用子类的初始化方法
         this.onAttackLoad();
@@ -30,7 +78,6 @@ export abstract class BaseAttack extends Component {
     start() {
         // 检查是否有敌人，没有敌人就不执行攻击开始逻辑
         if (!this.shouldExecuteAttack()) {
-            console.log(`⚠️ ${this.getAttackName()} 开始时没有敌人，跳过攻击开始逻辑`);
             return;
         }
         
@@ -115,13 +162,7 @@ export abstract class BaseAttack extends Component {
      */
     protected hasEnemiesAvailable(): boolean {
         const enemies = this.getAllEnemies();
-        const hasEnemies = enemies.length > 0;
-        
-        if (!hasEnemies) {
-            console.log(`⚠️ ${this.getAttackName()} 检测到场景中没有敌人，跳过攻击`);
-        }
-        
-        return hasEnemies;
+        return enemies.length > 0;
     }
 
     /**
@@ -142,6 +183,42 @@ export abstract class BaseAttack extends Component {
     }
 
     /**
+     * 获取GameManager的缓存目标信息
+     * @returns 缓存的目标信息，如果没有则返回null
+     */
+    protected getCachedTargetFromGameManager(): { position: { x: number; y: number }; name: string } | null {
+        console.log("🎯 BaseAttack: 尝试从GameManager获取缓存目标...");
+        
+        const scene = this.node.scene;
+        if (!scene) {
+            console.warn('⚠️ BaseAttack: 无法获取场景信息');
+            return null;
+        }
+        
+        const gameManager = scene.getComponentInChildren(GameManager) as GameManager;
+        if (!gameManager) {
+            console.warn('⚠️ BaseAttack: 没有找到GameManager');
+            return null;
+        }
+        
+        // 使用GameManager的缓存目标
+        const cachedEnemy = gameManager.getCachedNearestEnemy();
+        console.log("🎯 BaseAttack: GameManager返回的缓存敌人:", cachedEnemy);
+        
+        if (cachedEnemy) {
+            const result = {
+                position: cachedEnemy.position,
+                name: cachedEnemy.name
+            };
+            console.log("✅ BaseAttack: 成功获取缓存目标:", result);
+            return result;
+        }
+        
+        console.log("⚠️ BaseAttack: 没有找到缓存目标");
+        return null;
+    }
+
+    /**
      * 销毁攻击
      */
     protected destroyAttack(): void {
@@ -155,6 +232,228 @@ export abstract class BaseAttack extends Component {
     onDestroy() {
         this._hitEnemies.clear();
         this.onAttackComponentDestroy();
+    }
+
+    // ========== 瞄准系统方法 ==========
+
+    /**
+     * 设置瞄准配置
+     * @param config 瞄准配置
+     */
+    protected setAimingConfig(config: AimingConfig): void {
+        this._aimingConfig = config;
+        console.log(`🎯 ${this.getAttackName()}: 设置瞄准配置`, config);
+    }
+
+    /**
+     * 执行瞄准计算
+     * @returns 瞄准结果
+     */
+    protected executeAiming(): AimingResult {
+        if (!this._aimingConfig) {
+            console.warn(`⚠️ ${this.getAttackName()}: 未设置瞄准配置，使用默认方向`);
+            return {
+                success: false,
+                direction: new Vec2(1, 0), // 默认向右
+                velocity: new Vec2(300, 0) // 默认速度
+            };
+        }
+
+        const config = this._aimingConfig;
+        const currentPos = config.useWorldCoordinates ? this.node.worldPosition : this.node.position;
+
+        switch (config.mode) {
+            case AimingMode.NEAREST_ENEMY:
+                return this.aimAtNearestEnemy(currentPos, config);
+            
+            case AimingMode.MANUAL_TARGET:
+                return this.aimAtManualTarget(currentPos, config);
+            
+            case AimingMode.FIXED_DIRECTION:
+                return this.aimAtFixedDirection(config);
+            
+            case AimingMode.NONE:
+            default:
+                return this.aimWithoutTarget(config);
+        }
+    }
+
+    /**
+     * 瞄准最近的敌人
+     */
+    private aimAtNearestEnemy(currentPos: Vec3, config: AimingConfig): AimingResult {
+        console.log(`🎯 ${this.getAttackName()}: 开始瞄准最近敌人...`);
+        console.log(`  - 当前位置: (${currentPos.x.toFixed(1)}, ${currentPos.y.toFixed(1)})`);
+        
+        const cachedTarget = this.getCachedTargetFromGameManager();
+        
+        if (cachedTarget) {
+            this._targetPosition.set(cachedTarget.position.x, cachedTarget.position.y, 0);
+            const direction = this.calculateDirection(currentPos, this._targetPosition, config);
+            const velocity = this.calculateVelocity(direction, config);
+            
+            console.log(`✅ ${this.getAttackName()}: 瞄准最近敌人成功 ${cachedTarget.name}`);
+            console.log(`  - 当前位置: (${currentPos.x.toFixed(1)}, ${currentPos.y.toFixed(1)})`);
+            console.log(`  - 目标位置: (${this._targetPosition.x.toFixed(1)}, ${this._targetPosition.y.toFixed(1)})`);
+            console.log(`  - 方向向量: (${direction.x.toFixed(3)}, ${direction.y.toFixed(3)})`);
+            console.log(`  - 速度向量: (${velocity.x.toFixed(1)}, ${velocity.y.toFixed(1)})`);
+            
+            return {
+                success: true,
+                targetPosition: this._targetPosition.clone(),
+                direction: direction,
+                velocity: velocity
+            };
+        } else {
+            console.log(`⚠️ ${this.getAttackName()}: 没有找到可瞄准的敌人，使用默认方向`);
+            return this.aimWithoutTarget(config);
+        }
+    }
+
+    /**
+     * 瞄准手动指定的目标
+     */
+    private aimAtManualTarget(currentPos: Vec3, config: AimingConfig): AimingResult {
+        if (!config.manualTarget) {
+            console.warn(`⚠️ ${this.getAttackName()}: 手动瞄准模式但未设置目标位置`);
+            return this.aimWithoutTarget(config);
+        }
+
+        this._targetPosition.set(config.manualTarget);
+        const direction = this.calculateDirection(currentPos, this._targetPosition, config);
+        const velocity = this.calculateVelocity(direction, config);
+        
+        console.log(`🎯 ${this.getAttackName()}: 瞄准手动目标`);
+        console.log(`  - 目标位置: (${this._targetPosition.x.toFixed(1)}, ${this._targetPosition.y.toFixed(1)})`);
+        
+        return {
+            success: true,
+            targetPosition: this._targetPosition.clone(),
+            direction: direction,
+            velocity: velocity
+        };
+    }
+
+    /**
+     * 固定方向瞄准
+     */
+    private aimAtFixedDirection(config: AimingConfig): AimingResult {
+        if (!config.fixedDirection) {
+            console.warn(`⚠️ ${this.getAttackName()}: 固定方向模式但未设置方向向量`);
+            return this.aimWithoutTarget(config);
+        }
+
+        const direction = config.fixedDirection.clone().normalize();
+        const velocity = this.calculateVelocity(direction, config);
+        
+        console.log(`🎯 ${this.getAttackName()}: 使用固定方向`);
+        console.log(`  - 方向向量: (${direction.x.toFixed(3)}, ${direction.y.toFixed(3)})`);
+        
+        return {
+            success: true,
+            direction: direction,
+            velocity: velocity
+        };
+    }
+
+    /**
+     * 无瞄准模式
+     */
+    private aimWithoutTarget(config: AimingConfig): AimingResult {
+        const direction = new Vec2(1, 0); // 默认向右
+        const velocity = this.calculateVelocity(direction, config);
+        
+        return {
+            success: false,
+            direction: direction,
+            velocity: velocity
+        };
+    }
+
+    /**
+     * 计算方向向量
+     */
+    private calculateDirection(fromPos: Vec3, toPos: Vec3, config: AimingConfig): Vec2 {
+        const direction = new Vec2(toPos.x - fromPos.x, toPos.y - fromPos.y);
+        
+        // 根据运动模式调整方向
+        switch (config.movementMode) {
+            case MovementMode.PROJECTILE:
+                // 抛物线运动：添加向上分量
+                direction.y += Math.abs(direction.x) * 0.3;
+                break;
+                
+            case MovementMode.TRACKING:
+                // 追踪运动：保持原始方向
+                break;
+                
+            case MovementMode.LINEAR:
+            default:
+                // 直线运动：保持原始方向
+                break;
+        }
+        
+        return direction.normalize();
+    }
+
+    /**
+     * 计算速度向量
+     */
+    private calculateVelocity(direction: Vec2, config: AimingConfig): Vec2 {
+        return direction.multiplyScalar(config.speed);
+    }
+
+    /**
+     * 应用瞄准结果到刚体
+     * @param aimingResult 瞄准结果
+     * @param rigidbody 目标刚体（可选，默认使用节点上的刚体）
+     */
+    protected applyAimingToRigidbody(aimingResult: AimingResult, rigidbody?: RigidBody2D): boolean {
+        const targetRigidbody = rigidbody || this.node.getComponent(RigidBody2D);
+        
+        if (!targetRigidbody) {
+            console.warn(`⚠️ ${this.getAttackName()}: 没有找到RigidBody2D组件，无法应用瞄准`);
+            return false;
+        }
+
+        targetRigidbody.linearVelocity = aimingResult.velocity;
+        this._direction.set(aimingResult.direction);
+        
+        console.log(`🚀 ${this.getAttackName()}: 应用瞄准结果`);
+        console.log(`  - 速度向量: (${aimingResult.velocity.x.toFixed(1)}, ${aimingResult.velocity.y.toFixed(1)})`);
+        
+        return true;
+    }
+
+    /**
+     * 获取当前目标位置
+     */
+    protected getCurrentTargetPosition(): Vec3 {
+        return this._targetPosition.clone();
+    }
+
+    /**
+     * 获取当前移动方向
+     */
+    protected getCurrentDirection(): Vec2 {
+        return this._direction.clone();
+    }
+
+    /**
+     * 检查是否接近目标位置
+     * @param threshold 距离阈值
+     * @returns 是否接近目标
+     */
+    protected isNearTarget(threshold: number = 20): boolean {
+        if (this._targetPosition.equals(Vec3.ZERO)) {
+            return false;
+        }
+        
+        const currentPos = this._aimingConfig?.useWorldCoordinates ? 
+            this.node.worldPosition : this.node.position;
+        const distance = Vec3.distance(currentPos, this._targetPosition);
+        
+        return distance <= threshold;
     }
 
     // ========== 抽象方法 - 子类必须实现 ==========
@@ -233,7 +532,6 @@ export abstract class BaseAttack extends Component {
      */
     public setDamage(damage: number): void {
         this.damage = damage;
-        console.log(`⚙️ ${this.getAttackName()} 伤害值设置为:`, damage);
     }
 
     /**
@@ -248,14 +546,12 @@ export abstract class BaseAttack extends Component {
                         otherCollider.node.parent?.name.toLowerCase().includes('player');
         
         if (isPlayer) {
-            console.log(`⚡ ${this.getAttackName()} 撞到玩家，跳过处理`);
             return false;
         }
 
         // 检查是否是敌人
         const enemyScript = otherCollider.getComponent(Enemy);
         if (!enemyScript) {
-            console.log(`⚠️ ${this.getAttackName()} 碰撞目标不是敌人:`, otherCollider.node.name);
             return false;
         }
 

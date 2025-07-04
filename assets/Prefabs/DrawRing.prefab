@@ -229,7 +229,7 @@
     "fileId": "b9a6fHgYZVEz68Ekgknkpv9"
   },
   {
-    "__type__": "cde45Z4kBI0VniavN7wEjRW",
+    "__type__": "56a626DtWdPq5t3YU2UsZ5K",
     "_name": "",
     "_objFlags": 0,
     "__editorExtras__": {},
@@ -242,7 +242,7 @@
     },
     "damage": 10,
     "expandSpeed": 150,
-    "initialSize": 0,
+    "initialSize": 50,
     "maxSize": 1000,
     "lineWidth": 8,
     "lineColor": {
@@ -263,7 +263,7 @@
   },
   {
     "__type__": "cc.CompPrefabInfo",
-    "fileId": "3ds9RcZ2xFzKNbff1mfJCy"
+    "fileId": "b7S83BrmVDrbLPjHbEfiuX"
   },
   {
     "__type__": "cc.PrefabInfo",

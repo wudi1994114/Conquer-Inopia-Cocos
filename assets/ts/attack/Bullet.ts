@@ -1,6 +1,6 @@
 import { _decorator, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, Vec3, Vec2 } from 'cc';
 import { Enemy } from '../Enemy';
-import { BaseAttack } from './BaseAttack';
+import { BaseAttack, AimingMode, MovementMode } from './BaseAttack';
 import { AttackSystem } from './AttackSystem';
 
 const { ccclass, property } = _decorator;
@@ -11,8 +11,6 @@ export class Bullet extends BaseAttack {
     private _hasHit: boolean = false; // 防止重复伤害
     private _collider: Collider2D | null = null;
     private _rigidbody: RigidBody2D | null = null;
-    private _logTimer: number = 0; // 用于控制日志频率
-    private _lastPosition: Vec3 = new Vec3(); // 记录上一帧位置
 
     protected getAttackName(): string {
         return "子弹";
@@ -43,22 +41,56 @@ export class Bullet extends BaseAttack {
             this._rigidbody.enabledContactListener = true; // 启用碰撞监听器
             this._rigidbody.bullet = true; // 启用CCD，防止高速穿透
             this._rigidbody.gravityScale = 0; // 子弹不受重力影响
+            this._rigidbody.linearDamping = 0; // 不受空气阻力影响
+            this._rigidbody.angularDamping = 0; // 不受角速度阻力影响
+            
+            console.log("🛡️ 子弹物理配置:");
+            console.log("  - 启用CCD (bullet):", this._rigidbody.bullet);
+            console.log("  - 碰撞监听器:", this._rigidbody.enabledContactListener);
+            console.log("  - 重力系数:", this._rigidbody.gravityScale);
+            console.log("  - 线性阻尼:", this._rigidbody.linearDamping);
+            console.log("  - 角速度阻尼:", this._rigidbody.angularDamping);
         } else {
             console.error("❌ 子弹没有找到 RigidBody2D 组件!");
         }
         
-        // 记录初始位置
-        this._lastPosition.set(this.node.position);
+        // 设置瞄准配置 - 子弹高速直线瞄准最近敌人
+        this.setAimingConfig({
+            mode: AimingMode.NEAREST_ENEMY,
+            movementMode: MovementMode.LINEAR,
+            speed: 500,  // 子弹速度比火球更快
+            useWorldCoordinates: true
+        });
+        
+
     }
 
     protected onAttackStart(): void {
-        // 移除速度检查逻辑，避免与SkillManager的速度设置冲突
-        // 让SkillManager完全负责速度设置
+        console.log("🔫 子弹开始飞行");
+        
+        // 执行瞄准计算
+        const aimingResult = this.executeAiming();
+        
+        if (aimingResult.success) {
+            console.log("🎯 子弹瞄准成功");
+        } else {
+            console.log("⚠️ 子弹瞄准失败，使用默认方向");
+        }
+        
+        // 应用瞄准结果到刚体
+        if (this._rigidbody) {
+            this.applyAimingToRigidbody(aimingResult, this._rigidbody);
+        }
         
         // 强制关闭传感器模式
         if (this._collider && this._collider.sensor === true) {
             this._collider.sensor = false;
         }
+        
+        console.log("🔫 子弹飞行信息:");
+        console.log("  - 当前位置:", this.node.worldPosition);
+        console.log("  - 飞行方向:", this.getCurrentDirection());
+        console.log("  - 刚体速度:", this._rigidbody?.linearVelocity);
         
         // 3秒后自动销毁，防止子弹飞出屏幕后永远存在，造成性能浪费
         this.scheduleOnce(() => {

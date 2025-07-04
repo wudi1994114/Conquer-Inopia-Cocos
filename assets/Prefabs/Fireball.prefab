@@ -188,7 +188,7 @@
       "__id__": 9
     },
     "tag": 0,
-    "_group": 1,
+    "_group": 4,
     "_density": 1,
     "_sensor": false,
     "_friction": 0.2,
@@ -206,7 +206,7 @@
     "fileId": "d2uzb6lo9ELbkIfmcbYnlZ"
   },
   {
-    "__type__": "f0123RWeJq83vASNFZ4mrze",
+    "__type__": "657e5bfk9tJFJ/4H9fopnJi",
     "_name": "",
     "_objFlags": 0,
     "__editorExtras__": {},
@@ -226,11 +226,14 @@
       "y": 0,
       "z": 0
     },
+    "explosionDuration": 0.8,
+    "shakeIntensity": 10,
+    "explosionParticleCount": 12,
     "_id": ""
   },
   {
     "__type__": "cc.CompPrefabInfo",
-    "fileId": "caEG4lwFpMPLdOLeap8Yl7"
+    "fileId": "e0nU9KvexIaJKofglSEan0"
   },
   {
     "__type__": "cc.PrefabInfo",

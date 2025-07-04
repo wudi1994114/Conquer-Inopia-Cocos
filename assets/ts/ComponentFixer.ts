@@ -201,4 +201,56 @@ export class ComponentFixer extends Component {
 
         console.log('✅ Enemy 组件修复完成');
     }
+
+    /**
+     * 检查并修复玩家节点
+     */
+    public static fixPlayerComponents(node: Node): void {
+        if (!node || !node.isValid) return;
+
+        console.log(`🔧 ComponentFixer: 修复玩家节点 "${node.name}"`);
+
+        const rigidbody = node.getComponent(RigidBody2D);
+        const collider = node.getComponent(Collider2D);
+
+        if (!rigidbody) {
+            console.log('🔧 添加 RigidBody2D 到 Player');
+            const rb = node.addComponent(RigidBody2D);
+            rb.enabledContactListener = true;
+            rb.bullet = false;
+            rb.gravityScale = 0;
+            rb.type = ERigidBody2DType.Dynamic;
+            rb.group = PhysicsGroupsSimple.GROUPS.PLAYER;
+        } else {
+            // 确保现有的RigidBody2D配置正确
+            if (rigidbody.group !== PhysicsGroupsSimple.GROUPS.PLAYER) {
+                rigidbody.group = PhysicsGroupsSimple.GROUPS.PLAYER;
+                console.log('🔧 修正 Player RigidBody2D 物理分组');
+            }
+        }
+
+        if (!collider) {
+            console.log('🔧 添加 BoxCollider2D 到 Player');
+            const boxCollider = node.addComponent(BoxCollider2D);
+            boxCollider.size.width = 40;
+            boxCollider.size.height = 40;
+            boxCollider.sensor = false;
+            boxCollider.group = PhysicsGroupsSimple.GROUPS.PLAYER;
+        } else {
+            // 确保现有的Collider2D配置正确
+            if (collider.group !== PhysicsGroupsSimple.GROUPS.PLAYER) {
+                collider.group = PhysicsGroupsSimple.GROUPS.PLAYER;
+                console.log('🔧 修正 Player Collider2D 物理分组');
+            }
+        }
+
+        // 检查是否有PlayerController组件
+        const playerController = node.getComponent('PlayerController');
+        if (!playerController) {
+            console.log('🔧 添加 PlayerController 到 Player');
+            node.addComponent('PlayerController');
+        }
+
+        console.log('✅ Player 组件修复完成');
+    }
 } 

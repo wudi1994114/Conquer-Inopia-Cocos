@@ -4,13 +4,13 @@ const { ccclass } = _decorator;
 
 /**
  * 统一攻击系统管理器
- * 管理所有攻击的版本号和类型
+ * 管理所有攻击的版本号和类型 - 按攻击类型分别计数
  */
 @ccclass('AttackSystem')
 export class AttackSystem {
     
-    // 全局统一版本号计数器
-    private static _globalAttackVersion: number = 0;
+    // 按攻击类型分别维护版本号计数器
+    private static _attackVersionCounters: Map<string, number> = new Map();
     
     /**
      * 攻击类型枚举
@@ -27,27 +27,31 @@ export class AttackSystem {
     } as const;
     
     /**
-     * 获取下一个攻击版本号
+     * 获取指定攻击类型的下一个版本号
+     * @param attackType 攻击类型
      * @returns 新的攻击版本号
      */
-    public static getNextAttackVersion(): number {
-        return ++AttackSystem._globalAttackVersion;
+    public static getNextAttackVersion(attackType: AttackTypeValue): number {
+        const currentVersion = AttackSystem._attackVersionCounters.get(attackType) || 0;
+        const newVersion = currentVersion + 1;
+        AttackSystem._attackVersionCounters.set(attackType, newVersion);
+        return newVersion;
     }
     
     /**
-     * 获取当前攻击版本号（不递增）
+     * 获取指定攻击类型的当前版本号（不递增）
+     * @param attackType 攻击类型
      * @returns 当前攻击版本号
      */
-    public static getCurrentAttackVersion(): number {
-        return AttackSystem._globalAttackVersion;
+    public static getCurrentAttackVersion(attackType: AttackTypeValue): number {
+        return AttackSystem._attackVersionCounters.get(attackType) || 0;
     }
     
     /**
      * 重置攻击版本号（一般用于游戏重启）
      */
     public static resetAttackVersion(): void {
-        AttackSystem._globalAttackVersion = 0;
-        console.log("🔄 攻击版本号系统已重置");
+        AttackSystem._attackVersionCounters.clear();
     }
     
     /**
@@ -61,7 +65,7 @@ export class AttackSystem {
         damage: number
     ): AttackInfo {
         return {
-            version: AttackSystem.getNextAttackVersion(),
+            version: AttackSystem.getNextAttackVersion(type),
             type: type,
             damage: damage,
             timestamp: Date.now()

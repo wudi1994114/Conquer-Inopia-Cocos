@@ -1,4 +1,4 @@
-import { _decorator, Node, Collider2D, Contact2DType, IPhysics2DContact } from 'cc';
+import { _decorator, Node, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D } from 'cc';
 import { Enemy } from '../Enemy';
 import { BaseAttack } from './BaseAttack';
 import { AttackSystem } from './AttackSystem';
@@ -18,14 +18,14 @@ export class FlyingDisc extends BaseAttack {
     public lifetime: number = 10;
     
     @property({tooltip: '玩家节点引用'})
-    public playerNode: Node = null;
+    public playerNode: Node | null = null;
     
     @property({tooltip: '攻击间隔（秒）'})
     public attackInterval: number = 0.5;
 
     private _hitEnemiesTime: Map<Enemy, number> = new Map(); // 记录击中敌人和上次攻击时间
     private _currentAngle: number = 0; // 当前旋转角度
-    private _collider: Collider2D = null;
+    private _collider: Collider2D | null = null;
 
     protected getAttackName(): string {
         return "飞盘";
@@ -45,11 +45,20 @@ export class FlyingDisc extends BaseAttack {
             console.error("❌ FlyingDisc Error: 飞盘没有找到 Collider2D 组件!");
         }
         
-        // 如果没有设置玩家节点，尝试自动查找
+        // 🔧 重要：飞盘设置为非刚体，完全通过代码控制位置
+        const rigidbody = this.node.getComponent(RigidBody2D);
+        if (rigidbody) {
+            rigidbody.enabled = false; // 禁用刚体，防止物理引擎影响
+            console.log("🛑 飞盘刚体已禁用，使用非物理运动");
+        }
+        
+        // 如果没有设置玩家节点，尝试多种方式查找
         if (!this.playerNode) {
-            this.playerNode = this.node.parent?.getChildByName("Player");
+            this.playerNode = this.findPlayerNode();
             if (!this.playerNode) {
                 console.error("❌ FlyingDisc Error: 无法找到玩家节点!");
+            } else {
+                console.log("✅ 飞盘找到玩家节点:", this.playerNode.name);
             }
         }
         
@@ -61,6 +70,56 @@ export class FlyingDisc extends BaseAttack {
         console.log("  - 旋转速度:", this.rotationSpeed);
         console.log("  - 存在时间:", this.lifetime);
         console.log("  - 初始角度:", this._currentAngle.toFixed(2));
+        console.log("  - 运动模式: 非刚体（代码控制位置）");
+    }
+
+    /**
+     * 查找玩家节点的多种方式
+     */
+    private findPlayerNode(): Node | null {
+        // 方法1：从父节点中查找名为"Player"的子节点
+        if (this.node.parent) {
+            const playerByName = this.node.parent.getChildByName("Player");
+            if (playerByName) {
+                console.log("🎯 通过父节点找到玩家节点:", playerByName.name);
+                return playerByName;
+            }
+        }
+        
+        // 方法2：从场景根节点查找
+        const scene = this.node.scene;
+        if (scene) {
+            const playerInScene = scene.getChildByName("Player");
+            if (playerInScene) {
+                console.log("🎯 通过场景根节点找到玩家节点:", playerInScene.name);
+                return playerInScene;
+            }
+        }
+        
+        // 方法3：查找带有PlayerController组件的节点
+        if (this.node.parent) {
+            const children = this.node.parent.children;
+            for (const child of children) {
+                if (child.getComponent('PlayerController')) {
+                    console.log("🎯 通过PlayerController组件找到玩家节点:", child.name);
+                    return child;
+                }
+            }
+        }
+        
+        // 方法4：从场景中查找带有PlayerController的节点
+        if (scene) {
+            const allNodes = scene.children;
+            for (const node of allNodes) {
+                if (node.getComponent('PlayerController')) {
+                    console.log("🎯 通过场景中的PlayerController找到玩家节点:", node.name);
+                    return node;
+                }
+            }
+        }
+        
+        console.warn("⚠️ 所有查找玩家节点的方法都失败了");
+        return null;
     }
 
     protected onAttackStart(): void {
@@ -114,7 +173,7 @@ export class FlyingDisc extends BaseAttack {
             console.log("  - 当前角度:", this._currentAngle.toFixed(2));
             
             // 飞盘可以重复攻击同一个敌人，但需要新的版本号
-            const currentAttackVersion = AttackSystem.getNextAttackVersion();
+            const currentAttackVersion = AttackSystem.getNextAttackVersion(this.getAttackType());
             const damageSuccessful = this.dealDamageToEnemy(enemyScript, this.getAttackType(), currentAttackVersion);
             
             if (damageSuccessful) {

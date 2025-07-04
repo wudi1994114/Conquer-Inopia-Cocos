@@ -1,9 +1,9 @@
-import { _decorator, Component, Node, Prefab, instantiate, Vec2, RigidBody2D, director } from 'cc';
-import { SKILL_CONFIGS, SkillConfig, SkillInstance, SkillUtils, SkillGlobalConfig } from './attack/skill-config';
-import { EventManager, GameEvents, PlayerAttackEventData } from './EventManager';
+import { _decorator, Component, Node, Prefab, instantiate, Vec2, RigidBody2D, director, Vec3 } from 'cc';
+import { SKILL_CONFIGS, SkillInstance, SkillUtils } from './attack/skill-config';
+import { EventManager, GameEvents, PlayerAttackEventData, TargetData } from './EventManager';
 import { ComponentFixer } from './ComponentFixer';
-import { PhysicsGroupsSimple } from './PhysicsGroupsSimple';
 import { GameManager } from './GameManager';
+import { PhysicsGroups } from './PhysicsGroups';
 
 const { ccclass, property } = _decorator;
 
@@ -23,16 +23,69 @@ export class SkillManager extends Component {
     // 激活中的技能节点
     private activeSkillNodes: Map<string, Node[]> = new Map();
     
+    // 绑定的事件处理器引用（修复内存泄漏）
+    private boundPlayerAttackHandler!: (data: PlayerAttackEventData) => void;
+    
+    // 动态构建的技能预制体映射（基于名称而非索引）
+    private skillPrefabMap: Map<string, Prefab> = new Map();
+    
     onLoad() {
-        console.log('🎮 技能管理器初始化');
+        // 绑定事件处理器一次并保存引用
+        this.boundPlayerAttackHandler = this.onPlayerAttack.bind(this);
+        
+        // 构建技能预制体映射
+        this.buildSkillPrefabMap();
         
         // 订阅事件
         this.subscribeToEvents();
         
         // 自动获取基础技能
         this.initializeBasicSkills();
+    }
+
+    /**
+     * 动态构建技能预制体映射
+     * 基于预制体名称而非索引，更加健壮
+     */
+    private buildSkillPrefabMap() {
+        // 清空现有映射
+        this.skillPrefabMap.clear();
         
-        console.log('✅ 技能管理器初始化完成');
+        // 技能ID到预制体名称的映射
+        const skillPrefabNames: { [skillId: string]: string } = {
+            'bullet': 'Bullet',
+            'ring': 'DrawRing',  // 根据项目文件结构，Ring已被删除，使用DrawRing
+            'laser': 'Laser',
+            'fireball': 'Fireball',
+            'freeze': 'Freeze',
+            'flyingDisc': 'FlyingDisc'
+        };
+        
+        // 遍历所有技能预制体，根据名称建立映射
+        this.skillPrefabs.forEach((prefab, index) => {
+            if (!prefab) {
+                console.warn(`⚠️ 预制体索引 ${index} 为空`);
+                return;
+            }
+            
+            const prefabName = prefab.name;
+            
+            // 查找匹配的技能ID
+            const skillIds = Object.keys(skillPrefabNames);
+            for (const skillId of skillIds) {
+                const expectedName = skillPrefabNames[skillId];
+                if (prefabName === expectedName) {
+                    this.skillPrefabMap.set(skillId, prefab);
+                    break;
+                }
+            }
+        });
+        
+        // 验证所有必需的技能预制体是否都已找到
+        const requiredSkills = Object.keys(skillPrefabNames);
+        const missingSkills = requiredSkills.filter(skillId => !this.skillPrefabMap.has(skillId));
+        
+
     }
 
     /**
@@ -41,11 +94,8 @@ export class SkillManager extends Component {
     private initializeBasicSkills() {
         const basicSkills = ['bullet', 'laser', 'fireball', 'freeze', 'flyingDisc', 'ring'];
         
-        console.log('📚 初始化基础技能...');
         basicSkills.forEach(skillId => {
-            if (this.acquireSkill(skillId)) {
-                console.log(`✅ 获得基础技能: ${skillId}`);
-            } else {
+            if (!this.acquireSkill(skillId)) {
                 console.warn(`⚠️ 获取基础技能失败: ${skillId}`);
             }
         });
@@ -55,18 +105,14 @@ export class SkillManager extends Component {
      * 订阅游戏事件
      */
     private subscribeToEvents() {
-        // 监听玩家攻击事件
-        EventManager.on(GameEvents.PLAYER_ATTACK, this.onPlayerAttack.bind(this));
-        
-        console.log('📡 技能管理器已订阅游戏事件');
+        // 使用保存的绑定引用来监听事件
+        EventManager.on(GameEvents.PLAYER_ATTACK, this.boundPlayerAttackHandler);
     }
 
     /**
      * 玩家攻击事件处理
      */
     private onPlayerAttack(data: PlayerAttackEventData) {
-        console.log('🎯 技能管理器收到玩家攻击事件', data);
-        
         // 处理主要攻击
         this.handlePrimaryAttack(data);
         
@@ -78,12 +124,9 @@ export class SkillManager extends Component {
      * 处理主要攻击（所有攻击类型）
      */
     private handlePrimaryAttack(data: PlayerAttackEventData) {
-        console.log(`🎯 处理攻击类型: ${data.attackType}`);
-        
         // 检查是否拥有该技能，如果没有则自动获取
         let skillInstance = this.ownedSkills.get(data.attackType);
         if (!skillInstance) {
-            console.log(`📚 自动获取技能: ${data.attackType}`);
             if (this.acquireSkill(data.attackType)) {
                 skillInstance = this.ownedSkills.get(data.attackType);
             }
@@ -94,8 +137,8 @@ export class SkillManager extends Component {
             return;
         }
         
-        // 使用统一的技能创建方法
-        this.createSkillAttackWithConfig(data.attackType, data.position, skillInstance);
+        // 使用统一的技能创建方法，传递目标信息
+        this.createSkillAttackWithConfig(data.attackType, data.position, skillInstance, data.target);
     }
 
     /**
@@ -155,8 +198,8 @@ export class SkillManager extends Component {
         // 设置子弹位置
         bullet.setWorldPosition(attackData.position.x, attackData.position.y, 0);
         
-        // 简化：不使用物理分组，让所有攻击都能正常碰撞
-        // PhysicsGroupsSimple.configurePlayerAttackPhysics(bullet);
+        // 🔧 启用物理分组系统：配置子弹为玩家攻击分组，自动不与玩家碰撞
+        PhysicsGroups.configurePlayerAttackPhysics(bullet);
         
         // 配置子弹属性
         const bulletComponent = bullet.getComponent('BaseAttack') as any;
@@ -167,53 +210,31 @@ export class SkillManager extends Component {
 
         // 设置子弹方向和速度
         const rigidbody = bullet.getComponent(RigidBody2D);
-        console.log('🎯 开始设置子弹速度');
-        console.log('  - 刚体存在:', !!rigidbody);
-        console.log('  - 目标存在:', !!attackData.target);
-        console.log('  - 攻击数据:', attackData);
         
         if (rigidbody && attackData.target) {
             // 从目标数据中获取位置信息
             const targetPos = attackData.target.position;
-            console.log('  - 玩家位置:', attackData.position);
-            console.log('  - 目标位置:', targetPos);
             
             const direction = new Vec2(
                 targetPos.x - attackData.position.x, 
                 targetPos.y - attackData.position.y
             ).normalize();
             
-            console.log('  - 计算方向:', direction);
-            
             const speed = SkillUtils.calculateSkillProperty(skillInstance.config, skillInstance.level, 'speed') || 800;
-            console.log('  - 计算速度:', speed);
-            
             const velocity = direction.multiplyScalar(speed);
-            console.log('  - 最终速度向量:', velocity);
             
             rigidbody.linearVelocity = velocity;
-            console.log('  - 设置后的刚体速度:', rigidbody.linearVelocity);
             
         } else if (rigidbody) {
             // 默认向上射击
-            console.log('  - 使用默认向上射击');
             const speed = SkillUtils.calculateSkillProperty(skillInstance.config, skillInstance.level, 'speed') || 800;
-            console.log('  - 默认速度:', speed);
-            
             const velocity = new Vec2(0, speed);
-            console.log('  - 默认速度向量:', velocity);
             
             rigidbody.linearVelocity = velocity;
-            console.log('  - 设置后的刚体速度:', rigidbody.linearVelocity);
             
         } else {
             console.error('❌ 无法设置子弹速度：缺少刚体组件');
         }
-
-        console.log('🔫 创建子弹攻击成功');
-        console.log('  - 子弹世界位置:', bullet.worldPosition);
-        console.log('  - 子弹激活状态:', bullet.active);
-        console.log('  - 设置的速度:', rigidbody ? rigidbody.linearVelocity : '无刚体');
     }
 
     /**
@@ -223,7 +244,6 @@ export class SkillManager extends Component {
         // 遍历所有被动技能
         this.ownedSkills.forEach((skillInstance, skillId) => {
             if (skillInstance.config.type === 'passive' && skillInstance.isActive) {
-                console.log(`⚡ 触发被动技能: ${skillInstance.config.name}`);
                 // 这里可以添加具体的被动技能逻辑
             }
         });
@@ -242,7 +262,6 @@ export class SkillManager extends Component {
         }
 
         if (this.ownedSkills.has(skillId)) {
-            console.log(`⚠️ 技能已拥有，尝试升级: ${config.name}`);
             return this.upgradeSkill(skillId);
         }
 
@@ -254,8 +273,6 @@ export class SkillManager extends Component {
         };
 
         this.ownedSkills.set(skillId, skillInstance);
-        
-        console.log(`🎉 获得新技能: ${config.name} (等级 ${skillInstance.level})`);
         
         // 发布技能获得事件
         EventManager.emit(GameEvents.SKILL_ACQUIRED, {
@@ -279,13 +296,10 @@ export class SkillManager extends Component {
         }
 
         if (skillInstance.level >= skillInstance.config.maxLevel) {
-            console.log(`⚠️ 技能已达最大等级: ${skillInstance.config.name}`);
             return false;
         }
 
         skillInstance.level++;
-        
-        console.log(`⬆️ 技能升级: ${skillInstance.config.name} → 等级 ${skillInstance.level}`);
         
         // 发布技能升级事件
         EventManager.emit(GameEvents.SKILL_UPGRADED, {
@@ -310,15 +324,11 @@ export class SkillManager extends Component {
         }
 
         if (!SkillUtils.canUseSkill(skillInstance)) {
-            const remainingTime = SkillUtils.getSkillCooldownRemaining(skillInstance);
-            console.log(`⏰ 技能冷却中: ${skillInstance.config.name} (剩余 ${remainingTime.toFixed(1)}s)`);
             return false;
         }
 
         // 更新使用时间
         skillInstance.lastUsedTime = Date.now();
-
-        console.log(`🔥 激活技能: ${skillInstance.config.name} (等级 ${skillInstance.level})`);
 
         // 安全获取位置信息
         let safePosition = position;
@@ -387,33 +397,20 @@ export class SkillManager extends Component {
             this.activeSkillNodes.set(skillId, []);
         }
         this.activeSkillNodes.get(skillId)!.push(skillNode);
-
-        console.log(`✨ 创建技能效果: ${skillId} 在位置 ${skillNode.worldPosition}`);
     }
 
     /**
-     * 技能ID到预制体索引的映射
-     */
-    private static readonly SKILL_PREFAB_MAP: { [skillId: string]: number } = {
-        'bullet': 0,      // Bullet.prefab
-        'ring': 1,        // Ring.prefab (或 DrawRing.prefab)
-        'laser': 2,       // Laser.prefab
-        'fireball': 3,    // Fireball.prefab
-        'freeze': 4,      // Freeze.prefab
-        'flyingDisc': 5   // FlyingDisc.prefab
-    };
-
-    /**
-     * 获取技能预制体
+     * 获取技能预制体（使用新的基于名称的映射系统）
      * @param skillId 技能ID
      */
     private getSkillPrefab(skillId: string): Prefab | null {
-        const index = SkillManager.SKILL_PREFAB_MAP[skillId];
-        if (typeof index === 'number' && index >= 0 && index < this.skillPrefabs.length) {
-            return this.skillPrefabs[index];
+        const prefab = this.skillPrefabMap.get(skillId);
+        if (prefab) {
+            return prefab;
         }
         
         console.error(`❌ 找不到技能预制体映射: ${skillId}`);
+        console.error('可用的技能映射:', Array.from(this.skillPrefabMap.keys()));
         return null;
     }
 
@@ -422,8 +419,9 @@ export class SkillManager extends Component {
      * @param skillId 技能ID
      * @param position 位置
      * @param skillInstance 技能实例（包含等级信息）
+     * @param target 目标信息
      */
-    private createSkillAttackWithConfig(skillId: string, position: { x: number; y: number }, skillInstance: SkillInstance) {
+    private createSkillAttackWithConfig(skillId: string, position: { x: number; y: number }, skillInstance: SkillInstance, target?: TargetData) {
         const prefab = this.getSkillPrefab(skillId);
         if (!prefab) {
             console.error(`❌ SkillManager: 无法获取技能预制体 ${skillId}`);
@@ -454,11 +452,19 @@ export class SkillManager extends Component {
             skillNode.setParent(parentNode);
             skillNode.setWorldPosition(position.x, position.y, 0);
             
+            // 添加位置调试信息
+            console.log(`📍 SkillManager: 设置${skillId}位置`);
+            console.log(`  - 期望位置: (${position.x.toFixed(1)}, ${position.y.toFixed(1)})`);
+            console.log(`  - 实际世界位置: (${skillNode.worldPosition.x.toFixed(1)}, ${skillNode.worldPosition.y.toFixed(1)})`);
+            console.log(`  - 实际本地位置: (${skillNode.position.x.toFixed(1)}, ${skillNode.position.y.toFixed(1)})`);
+            console.log(`  - 父节点: ${parentNode.name}`);
+            
             // 自动修复缺失的组件
             ComponentFixer.fixMissingComponents(skillNode, `技能-${skillId}`);
             
-            // 简化：不使用物理分组，让所有攻击都能正常碰撞
-            // PhysicsGroupsSimple.configurePlayerAttackPhysics(skillNode);
+            // 🔧 启用物理分组系统：配置技能为玩家攻击分组，自动不与玩家碰撞
+            PhysicsGroups.configurePlayerAttackPhysics(skillNode);
+            console.log(`🛡️ 已配置${skillId}的物理分组，将自动避免与玩家碰撞`);
         } catch (error) {
             console.error(`❌ SkillManager: 设置技能节点父节点或位置时发生错误 ${skillId}:`, error);
             this.safeDestroyNode(skillNode, `配置化技能-${skillId}`);
@@ -470,24 +476,16 @@ export class SkillManager extends Component {
         if (attackComponent && typeof attackComponent.setDamage === 'function') {
             const actualDamage = SkillUtils.getSkillDamage(skillInstance);
             attackComponent.setDamage(actualDamage);
-            
-            console.log(`⚙️ 配置技能属性:`);
-            console.log(`  - 技能: ${skillInstance.config.name}`);
-            console.log(`  - 等级: ${skillInstance.level}`);
-            console.log(`  - 基础伤害: ${skillInstance.config.damage}`);
-            console.log(`  - 实际伤害: ${actualDamage}`);
         }
         
-        // 为所有攻击类型设置运动方向和速度
-        this.configureAttackMovement(skillNode, skillId, skillInstance, position);
+        // 为所有攻击类型设置运动方向和速度，现在传递目标信息
+        this.configureAttackMovement(skillNode, skillId, skillInstance, position, target);
 
         // 记录激活的技能节点
         if (!this.activeSkillNodes.has(skillId)) {
             this.activeSkillNodes.set(skillId, []);
         }
         this.activeSkillNodes.get(skillId)!.push(skillNode);
-
-        console.log(`✨ 创建配置化技能效果: ${skillId} 在位置 ${skillNode.worldPosition}`);
     }
 
     /**
@@ -496,9 +494,18 @@ export class SkillManager extends Component {
      * @param skillId 技能ID
      * @param skillInstance 技能实例
      * @param position 发射位置
+     * @param target 目标信息
      */
-    private configureAttackMovement(skillNode: Node, skillId: string, skillInstance: SkillInstance, position: { x: number; y: number }) {
+    private configureAttackMovement(skillNode: Node, skillId: string, skillInstance: SkillInstance, position: { x: number; y: number }, target?: TargetData) {
         const rigidbody = skillNode.getComponent(RigidBody2D);
+        
+        // 🔧 特殊处理：飞盘使用非刚体运动，不需要配置刚体
+        if (skillId === 'flyingDisc') {
+            console.log("🥏 SkillManager: 飞盘使用非刚体运动模式，跳过刚体配置");
+            // 飞盘完全依赖自己的onAttackUpdate方法进行位置控制
+            return;
+        }
+        
         if (!rigidbody) {
             console.warn(`⚠️ ${skillId} 没有RigidBody2D组件，无法设置运动`);
             return;
@@ -510,24 +517,29 @@ export class SkillManager extends Component {
         switch (skillId) {
             case 'bullet':
                 // 子弹直线攻击，朝向最近的敌人或向上
-                console.log('🎯 配置子弹运动');
-                this.setLinearMovement(rigidbody, position, speed);
+                this.setLinearMovement(rigidbody, position, speed, target);
                 break;
             case 'laser':
-                // 激光直线攻击，朝向最近的敌人或向上
-                this.setLinearMovement(rigidbody, position, speed);
+                // 🔧 激光不应该移动！它是固定位置的视觉效果
+                this.setLaserMovement(rigidbody);
+                console.log("⚡ SkillManager: 激光运动已禁用（防止变成飞棍）");
                 break;
             case 'fireball':
-                // 火球抛物线攻击
-                this.setProjectileMovement(rigidbody, position, speed);
+                // 火球抛物线攻击，朝向最近的敌人
+                this.setProjectileMovement(rigidbody, position, speed, target);
+                
+                // 火球特殊处理：设置目标位置
+                if (target && target.position) {
+                    const fireballComponent = skillNode.getComponent('Fireball') as any;
+                    if (fireballComponent && typeof fireballComponent.setTarget === 'function') {
+                        // 使用Vec3设置目标位置
+                        fireballComponent.setTarget(new Vec3(target.position.x, target.position.y, 0));
+                    }
+                }
                 break;
             case 'freeze':
                 // 冰冻效果可能不需要移动，或者缓慢扩散
                 this.setAOEMovement(rigidbody, speed * 0.3);
-                break;
-            case 'flyingDisc':
-                // 飞盘旋转攻击
-                this.setSpinningMovement(rigidbody, position, speed);
                 break;
             case 'ring':
                 // 圆环是原地扩散，不需要设置速度
@@ -535,36 +547,27 @@ export class SkillManager extends Component {
                 break;
             default:
                 // 默认直线运动
-                this.setLinearMovement(rigidbody, position, speed);
+                this.setLinearMovement(rigidbody, position, speed, target);
                 break;
         }
-        
-        console.log(`🎮 配置 ${skillId} 运动: 速度=${speed}`);
     }
 
     /**
      * 设置直线运动
      */
-    private setLinearMovement(rigidbody: RigidBody2D, position: { x: number; y: number }, speed: number) {
+    private setLinearMovement(rigidbody: RigidBody2D, position: { x: number; y: number }, speed: number, target?: TargetData) {
         // 朝向最近的敌人，如果没有敌人则向上
-        const direction = this.getTargetDirection(position) || new Vec2(0, 1);
+        const direction = this.getTargetDirection(position, target) || new Vec2(0, 1);
         const velocity = direction.multiplyScalar(speed);
         
-        console.log('🚀 设置直线运动:');
-        console.log('  - 发射位置:', position);
-        console.log('  - 基础速度:', speed);
-        console.log('  - 移动方向:', direction);
-        console.log('  - 最终速度:', velocity);
-        
         rigidbody.linearVelocity = velocity;
-        console.log('  - 刚体速度确认:', rigidbody.linearVelocity);
     }
 
     /**
      * 设置抛物线运动
      */
-    private setProjectileMovement(rigidbody: RigidBody2D, position: { x: number; y: number }, speed: number) {
-        const direction = this.getTargetDirection(position) || new Vec2(0, 1);
+    private setProjectileMovement(rigidbody: RigidBody2D, position: { x: number; y: number }, speed: number, target?: TargetData) {
+        const direction = this.getTargetDirection(position, target) || new Vec2(0, 1);
         // 添加一些向上的分量模拟抛物线
         direction.y += 0.5;
         direction.normalize();
@@ -580,76 +583,63 @@ export class SkillManager extends Component {
     }
 
     /**
-     * 设置旋转运动
-     */
-    private setSpinningMovement(rigidbody: RigidBody2D, position: { x: number; y: number }, speed: number) {
-        const direction = this.getTargetDirection(position) || new Vec2(0, 1);
-        rigidbody.linearVelocity = direction.multiplyScalar(speed);
-        // 可以添加角速度让飞盘旋转
-        rigidbody.angularVelocity = 360; // 度/秒
-    }
-
-    /**
-     * 设置圆环扩散运动
+     * 设置圆环运动
      */
     private setRingMovement(rigidbody: RigidBody2D, speed: number) {
-        // 圆环可能是向外扩散的
-        rigidbody.linearVelocity = new Vec2(0, speed);
+        // 圆环不移动，只是原地扩散
+        rigidbody.linearVelocity = Vec2.ZERO;
     }
 
     /**
-     * 获取目标方向
+     * 设置激光运动（实际上是禁用运动）
      */
-    private getTargetDirection(position: { x: number; y: number }): Vec2 | null {
-        // 尝试通过场景查找GameManager
-        const scene = this.node.scene;
-        if (!scene) {
-            console.log('  - 无法获取场景，使用默认方向');
-            return null;
-        }
+    private setLaserMovement(rigidbody: RigidBody2D) {
+        // 激光不应该移动，它是固定位置的视觉效果
+        rigidbody.linearVelocity = Vec2.ZERO;
+        rigidbody.angularVelocity = 0;
         
-        const gameManager = scene.getComponentInChildren(GameManager) as GameManager;
-        if (!gameManager || !gameManager.activeEnemies || gameManager.activeEnemies.length === 0) {
-            console.log('  - 未找到GameManager或没有活跃敌人，使用默认方向');
-            return null;
-        }
+        // 可选：禁用刚体以确保完全不受物理影响
+        // rigidbody.enabled = false;
         
-        // 寻找最近的敌人
-        let nearestEnemy: Node | null = null;
-        let minDistance = Infinity;
-        
-        for (const enemy of gameManager.activeEnemies) {
-            if (enemy && enemy.isValid) {
-                const enemyPos = enemy.worldPosition;
-                const distance = Math.sqrt(
-                    Math.pow(enemyPos.x - position.x, 2) + 
-                    Math.pow(enemyPos.y - position.y, 2)
-                );
-                
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    nearestEnemy = enemy;
-                }
-            }
-        }
-        
-        if (nearestEnemy) {
-            const enemyPos = nearestEnemy.worldPosition;
+        console.log("🛑 SkillManager: 激光运动已完全禁用");
+    }
+
+    /**
+     * 获取目标方向（使用缓存优化性能）
+     */
+    private getTargetDirection(position: { x: number; y: number }, target?: TargetData): Vec2 | null {
+        // 如果有目标信息，直接使用
+        if (target && target.position) {
             const direction = new Vec2(
-                enemyPos.x - position.x,
-                enemyPos.y - position.y
+                target.position.x - position.x,
+                target.position.y - position.y
             ).normalize();
-            
-            console.log('  - 找到最近敌人，距离:', minDistance.toFixed(1));
-            console.log('  - 敌人位置:', enemyPos);
-            console.log('  - 计算方向:', direction);
             
             return direction;
         }
         
-        console.log('  - 没有有效敌人，使用默认方向');
+        // 使用GameManager的缓存目标（优化性能）
+        const scene = this.node.scene;
+        if (scene) {
+            const gameManager = scene.getComponentInChildren(GameManager) as GameManager;
+            if (gameManager) {
+                const cachedEnemy = gameManager.getCachedNearestEnemy();
+                                 if (cachedEnemy) {
+                     const direction = new Vec2(
+                         cachedEnemy.position.x - position.x,
+                         cachedEnemy.position.y - position.y
+                     ).normalize();
+                     
+                     return direction;
+                 }
+            }
+        }
+        
+        console.warn('⚠️ 没有找到任何目标');
         return null;
     }
+    
+
 
     /**
      * 获取拥有的技能列表
@@ -696,7 +686,6 @@ export class SkillManager extends Component {
         }
         
         try {
-            console.log(`🗑️ SkillManager: 安全销毁 ${nodeType}`);
             node.destroy();
         } catch (error) {
             console.error(`❌ SkillManager: 销毁 ${nodeType} 时发生错误:`, error);
@@ -704,14 +693,13 @@ export class SkillManager extends Component {
     }
 
     onDestroy() {
-        console.log('🗑️ 技能管理器销毁');
-        
-        // 取消事件订阅
-        EventManager.off(GameEvents.PLAYER_ATTACK, this.onPlayerAttack.bind(this));
+        // 使用保存的绑定引用来取消事件订阅（修复内存泄漏）
+        if (this.boundPlayerAttackHandler) {
+            EventManager.off(GameEvents.PLAYER_ATTACK, this.boundPlayerAttackHandler);
+        }
         
         // 安全清理所有活跃的技能节点
         this.activeSkillNodes.forEach((nodes, skillId) => {
-            console.log(`🧹 清理技能节点: ${skillId}, 数量: ${nodes.length}`);
             nodes.forEach((node, index) => {
                 this.safeDestroyNode(node, `${skillId}-${index}`);
             });

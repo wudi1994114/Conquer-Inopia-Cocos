@@ -1,4 +1,4 @@
-import { _decorator, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, view, Graphics, Color } from 'cc';
+import { _decorator, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, view, Graphics, Color, Vec3 } from 'cc';
 import { Enemy } from '../Enemy';
 import { BaseAttack } from './BaseAttack';
 import { AttackSystem } from './AttackSystem';
@@ -26,11 +26,14 @@ export class Ring extends BaseAttack {
     @property({type: Color, tooltip: '圆环填充颜色'})
     public fillColor: Color = new Color(0, 255, 255, 60); // 默认半透明青色
 
+    @property({tooltip: '圆环攻击宽度（敌人需要在这个范围内才会受到伤害）'})
+    public attackWidth: number = 30;
+
     private _currentSize: number = 0;
-    private _collider: Collider2D | null = null;
+    private _lastSize: number = 0; // 记录上一帧的大小，用于检测攻击范围
     private _graphics: Graphics | null = null;
     private _screenBounds: {width: number, height: number} = {width: 0, height: 0};
-    private _logTimer: number = 0; // 控制日志频率
+    private _alreadyHitEnemies: Set<Enemy> = new Set(); // 记录已经被攻击过的敌人
 
     protected getAttackName(): string {
         return "圆环";
@@ -56,6 +59,7 @@ export class Ring extends BaseAttack {
             
             // 设置初始大小
             this._currentSize = this.initialSize;
+            this._lastSize = this.initialSize;
             
             // 绘制初始圆环
             this.drawRing();
@@ -66,25 +70,8 @@ export class Ring extends BaseAttack {
     }
     
     protected onAttackStart(): void {
-        try {
-            // 设置碰撞器
-            this._collider = this.getComponent(Collider2D);
-            let rigidbody = this.getComponent(RigidBody2D);
-            
-            if (this._collider) {
-                // 监听碰撞开始事件
-                this._collider.on(Contact2DType.BEGIN_CONTACT, this.onBeginContact, this);
-            } else {
-                console.error("❌ 圆环没有找到 Collider2D 组件!");
-            }
-            
-            if (rigidbody) {
-                rigidbody.enabledContactListener = true;
-            }
-            
-        } catch (error: any) {
-            console.error("❌ 圆环start阶段失败:", error?.message || error);
-        }
+        // 圆环攻击不需要碰撞检测，使用范围检测
+        console.log("🌊 圆环攻击开始，使用范围检测模式");
     }
 
     /**
@@ -108,23 +95,17 @@ export class Ring extends BaseAttack {
     }
 
     protected onAttackUpdate(deltaTime: number): void {
+        // 保存上一帧的大小
+        this._lastSize = this._currentSize;
+        
         // 圆环扩大
         this._currentSize += this.expandSpeed * deltaTime;
         
         // 重新绘制圆环
         this.drawRing();
         
-        // 更新碰撞体大小
-        if (this._collider && this._collider.name.includes('Circle')) {
-            (this._collider as any).radius = this._currentSize / 2;
-        }
-        
-        // 减少日志频率：每隔1秒打印一次
-        this._logTimer += deltaTime;
-        if (this._logTimer >= 1) {
-            console.log(`🌊 圆环大小: ${this._currentSize.toFixed(0)}`);
-            this._logTimer = 0;
-        }
+        // 检测范围内的敌人
+        this.detectEnemiesInRange();
         
         // 检查是否超过最大大小或屏幕边界
         const maxScreenDimension = Math.max(this._screenBounds.width, this._screenBounds.height);
@@ -133,33 +114,53 @@ export class Ring extends BaseAttack {
         }
     }
 
-    onBeginContact(selfCollider: Collider2D, otherCollider: Collider2D, contact: IPhysics2DContact | null) {
-        // 尝试从被碰撞的物体上获取Enemy脚本
-        const enemyScript = otherCollider.getComponent(Enemy);
-        const enemyNode = otherCollider.node;
-
-        // 如果获取到了，说明撞到的是敌人
-        if (enemyScript && enemyNode) {
-            // 延迟执行伤害，避免在物理回调中直接修改状态
-            this.scheduleOnce(() => {
-                if (enemyScript && enemyScript.node && enemyScript.node.isValid) {
-                    const damageSuccessful = this.dealDamageToEnemy(enemyScript, this.getAttackType());
-                    if (damageSuccessful) {
-                        this.markEnemyAsHit(enemyNode);
-                    }
+    /**
+     * 检测圆环范围内的敌人
+     */
+    private detectEnemiesInRange(): void {
+        const enemies = this.getAllEnemies();
+        let hitCount = 0;
+        
+        for (const enemy of enemies) {
+            // 如果已经攻击过这个敌人，跳过
+            if (this._alreadyHitEnemies.has(enemy)) {
+                continue;
+            }
+            
+            const distance = Vec3.distance(this.node.position, enemy.node.position);
+            const currentRadius = this._currentSize / 2;
+            const lastRadius = this._lastSize / 2;
+            
+            // 检查敌人是否在圆环的攻击范围内（在当前圆环边缘附近）
+            const isInAttackRange = distance <= currentRadius && distance >= (currentRadius - this.attackWidth);
+            
+            // 或者敌人是否被圆环"经过"（从内圈到外圈）
+            const wasPassedThrough = distance >= lastRadius && distance <= currentRadius;
+            
+            if (isInAttackRange || wasPassedThrough) {
+                console.log("🌊 圆环击中敌人:", enemy.node.name, "距离:", distance.toFixed(2), "圆环半径:", currentRadius.toFixed(2));
+                
+                const damageSuccessful = this.dealDamageToEnemy(enemy, this.getAttackType());
+                if (damageSuccessful) {
+                    this.markEnemyAsHit(enemy.node);
+                    this._alreadyHitEnemies.add(enemy);
+                    hitCount++;
                 }
-            }, 0);
+            }
+        }
+        
+        if (hitCount > 0) {
+            console.log("📊 圆环攻击统计: 击中", hitCount, "个敌人");
         }
     }
     
     protected onAttackDestroy(): void {
-        // 圆环销毁时可以加日志，但现在保持安静
+        // 清理已击中敌人的记录
+        this._alreadyHitEnemies.clear();
     }
     
     protected onAttackComponentDestroy(): void {
-        // 清理碰撞监听器
-        if (this._collider) {
-            this._collider.off(Contact2DType.BEGIN_CONTACT, this.onBeginContact, this);
-        }
+        // 清理已击中敌人的记录
+        this._alreadyHitEnemies.clear();
     }
 } 

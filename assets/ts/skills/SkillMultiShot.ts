@@ -17,7 +17,7 @@ export class SkillMultiShot extends Component {
     private skillInstance: SkillInstance = null;
 
     onLoad() {
-        console.log('🎯 多重射击技能初始化');
+
         
         // 获取技能配置
         const config = SKILL_CONFIGS['multiShot'];

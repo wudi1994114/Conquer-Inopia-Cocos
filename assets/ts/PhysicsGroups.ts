@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, RigidBody2D, Collider2D } from 'cc';
+import { _decorator, Component, Node, RigidBody2D, Collider2D, PhysicsSystem2D } from 'cc';
 
 const { ccclass } = _decorator;
 
@@ -11,12 +11,12 @@ export class PhysicsGroups extends Component {
 
     // 定义物理分组常量（使用位掩码）
     public static readonly Groups = {
-        DEFAULT: 0,           // 默认分组：不与任何特定对象碰撞
-        PLAYER: 1,            // 玩家分组：玩家本体
-        PLAYER_ATTACK: 2,     // 玩家攻击分组：玩家发射的所有攻击
-        ENEMY: 4,             // 敌人分组：敌人本体
-        ENEMY_ATTACK: 8,      // 敌人攻击分组：敌人的攻击（如果有）
-        ENVIRONMENT: 16       // 环境分组：墙壁、障碍物等
+        DEFAULT: 1 << 0,       // 1
+        PLAYER: 1 << 1,        // 2
+        ENEMY: 1 << 2,         // 4
+        PLAYER_ATTACK: 1 << 3, // 8
+        ENEMY_ATTACK: 1 << 4,  // 16
+        ENVIRONMENT: 1 << 5,   // 32
     } as const;
 
     // 分组名称映射（用于调试）
@@ -29,11 +29,86 @@ export class PhysicsGroups extends Component {
         [PhysicsGroups.Groups.ENVIRONMENT]: 'ENVIRONMENT'
     } as const;
 
+    public static CollisionMatrix = {
+        // DEFAULT组与所有组都碰撞
+        DEFAULT: 0xFFFFFFFF,
+        
+        // 玩家与敌人、敌人攻击、环境碰撞
+        PLAYER: PhysicsGroups.Groups.ENEMY | PhysicsGroups.Groups.ENEMY_ATTACK | PhysicsGroups.Groups.ENVIRONMENT,
+        
+        // 玩家攻击与敌人、环境碰撞 (不与玩家碰撞)
+        PLAYER_ATTACK: PhysicsGroups.Groups.ENEMY | PhysicsGroups.Groups.ENVIRONMENT,
+        
+        // 敌人与玩家、玩家攻击、环境碰撞
+        ENEMY: PhysicsGroups.Groups.PLAYER | PhysicsGroups.Groups.PLAYER_ATTACK | PhysicsGroups.Groups.ENVIRONMENT,
+        
+        // 敌人攻击与玩家、环境碰撞
+        ENEMY_ATTACK: PhysicsGroups.Groups.PLAYER | PhysicsGroups.Groups.ENVIRONMENT,
+        
+        // 环境与所有攻击和角色碰撞
+        ENVIRONMENT: PhysicsGroups.Groups.PLAYER | PhysicsGroups.Groups.ENEMY | PhysicsGroups.Groups.PLAYER_ATTACK | PhysicsGroups.Groups.ENEMY_ATTACK
+    };
+
     /**
-     * 获取分组名称（用于调试）
+     * 动态应用碰撞矩阵到物理系统
+     * 确保物理规则在代码中强制执行，而不是依赖编辑器设置
      */
-    public static getGroupName(group: number): string {
-        return (PhysicsGroups.GroupNames as any)[group] || `UNKNOWN(${group})`;
+    public static applyCollisionMatrix(): void {
+        console.log("⚙️ 正在应用自定义物理碰撞矩阵...");
+        
+        const physicsSystem = PhysicsSystem2D.instance;
+        const matrix = physicsSystem.collisionMatrix;
+
+        for (let i = 0; i < matrix.length; i++) {
+            matrix[i] = 0;
+        }
+
+        for (const groupName in this.CollisionMatrix) {
+            const groupValue = this.Groups[groupName as keyof typeof this.Groups];
+            if (groupValue !== undefined) {
+                const groupIndex = Math.log2(groupValue);
+                if (groupIndex < matrix.length) {
+                    const mask = this.CollisionMatrix[groupName as keyof typeof this.CollisionMatrix];
+                    matrix[groupIndex] = mask;
+                }
+            }
+        }
+        
+        console.log("✅ 自定义物理碰撞矩阵应用成功！");
+        
+        // 🔧 修复：将调试循环的上限与实际分组数量挂钩，防止崩溃
+        const groupCount = Object.keys(this.Groups).length;
+        console.log("  - 检测到分组数量:", groupCount);
+        
+        // 打印矩阵用于调试
+        for (let i = 0; i < groupCount; i++) {
+            let groupName = Object.keys(this.Groups).find(key => Math.log2(this.Groups[key as keyof typeof this.Groups]) === i) || `GROUP ${i}`;
+            
+            while (groupName.length < 15) {
+                groupName += ' ';
+            }
+            
+            let mask = matrix[i] ? matrix[i].toString(2) : '0';
+            while (mask.length < 8) {
+                mask = '0' + mask;
+            }
+            
+            console.log(`  - ${groupName}: 碰撞掩码 ${mask}`);
+        }
+    }
+
+    /**
+     * 获取分组名称
+     * @param groupValue 分组值
+     * @returns 分组名称
+     */
+    public static getGroupName(groupValue: number): string {
+        for (const key in this.Groups) {
+            if (this.Groups[key as keyof typeof this.Groups] === groupValue) {
+                return key;
+            }
+        }
+        return 'UNKNOWN';
     }
 
     /**
@@ -115,9 +190,9 @@ export class PhysicsGroups extends Component {
     /**
      * 设置敌人物理分组
      */
-    public static configureEnemyPhysics(node: cc.Node): void {
-        const rigidbody = node.getComponent(cc.RigidBody2D);
-        const colliders = node.getComponents(cc.Collider2D);
+    public static configureEnemyPhysics(node: Node): void {
+        const rigidbody = node.getComponent(RigidBody2D);
+        const colliders = node.getComponents(Collider2D);
         
         if (rigidbody) {
             rigidbody.group = PhysicsGroups.Groups.ENEMY;
@@ -132,9 +207,9 @@ export class PhysicsGroups extends Component {
     /**
      * 设置敌人攻击物理分组
      */
-    public static configureEnemyAttackPhysics(node: cc.Node): void {
-        const rigidbody = node.getComponent(cc.RigidBody2D);
-        const colliders = node.getComponents(cc.Collider2D);
+    public static configureEnemyAttackPhysics(node: Node): void {
+        const rigidbody = node.getComponent(RigidBody2D);
+        const colliders = node.getComponents(Collider2D);
         
         if (rigidbody) {
             rigidbody.group = PhysicsGroups.Groups.ENEMY_ATTACK;

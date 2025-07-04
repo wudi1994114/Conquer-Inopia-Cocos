@@ -1,8 +1,8 @@
-import { _decorator, Component, Node, input, Input, EventKeyboard, KeyCode, RigidBody2D, Vec2, view, Vec3 } from 'cc';
+import { _decorator, Component, Node, input, Input, EventKeyboard, KeyCode, RigidBody2D, Vec2, view, Vec3, Sprite } from 'cc';
 import { GameManager } from './GameManager';
 import { EventManager, GameEvents, emitPlayerAttack, TargetData } from './EventManager';
 import { SkillManager } from './SkillManager';
-import { PhysicsGroupsSimple } from './PhysicsGroupsSimple';
+import { PhysicsGroups } from './PhysicsGroups';
 
 const { ccclass, property } = _decorator;
 
@@ -24,12 +24,35 @@ export class PlayerController extends Component {
 
     private _rigidbody: RigidBody2D | null = null;
     private _moveDirection: Vec2 = new Vec2(0, 0);
+    private _sprite: Sprite | null = null;
+    private _lastCleanupTime: number = 0; // 上次清理检查的时间
+    private readonly CLEANUP_CHECK_INTERVAL: number = 5000; // 每5秒检查一次重复组件
+    private _lastMoveState: boolean = false; // 用于调试移动状态变化
 
     onLoad() {
+        
+        // 获取基础组件
         this._rigidbody = this.getComponent(RigidBody2D);
+        this._sprite = this.getComponent(Sprite);
+        
         if (!this._rigidbody) {
             console.error("PlayerController Error: 玩家节点上必须挂载 RigidBody2D 组件!");
+        } else {
+            // 🔧 重要：锁定角度旋转，防止物理碰撞导致玩家旋转
+            this._rigidbody.fixedRotation = true;
+            console.log("🔒 玩家刚体角度已锁定，防止碰撞旋转");
         }
+        
+        if (!this._sprite) {
+            console.warn("PlayerController Warning: 玩家节点上没有找到 Sprite 组件");
+        } else {
+            console.log("✅ 找到玩家精灵组件");
+            // 确保精灵组件状态正确
+            this._sprite.enabled = true;
+        }
+
+        // 清理可能的重复组件
+        this.cleanupDuplicateComponents();
 
         // 注册输入事件
         input.on(Input.EventType.KEY_DOWN, this.onKeyDown, this);
@@ -41,8 +64,9 @@ export class PlayerController extends Component {
         // 初始化技能系统
         this.initializeSkills();
         
-        // 简化：不使用物理分组
-        // PhysicsGroupsSimple.configurePlayerPhysics(this.node);
+        // 🔧 启用物理分组系统：配置玩家为PLAYER分组
+        PhysicsGroups.configurePlayerPhysics(this.node);
+        console.log("🛡️ 已配置玩家的物理分组，将自动避免与玩家攻击碰撞");
         
         // 启动自动攻击
         this.startAutoAttack();
@@ -54,6 +78,8 @@ export class PlayerController extends Component {
     }
 
     onDestroy() {
+        console.log("🗑️ PlayerController 开始销毁");
+        
         // 清理输入事件
         input.off(Input.EventType.KEY_DOWN, this.onKeyDown, this);
         input.off(Input.EventType.KEY_UP, this.onKeyUp, this);
@@ -61,6 +87,16 @@ export class PlayerController extends Component {
         // 取消所有定时器
         this.unschedule(this.performAutoAttack);
         this.unschedule(this.performRingAttack);
+        
+        // 清理组件引用
+        this._rigidbody = null;
+        this._sprite = null;
+        this.skillManager = null;
+        this.gameManager = null;
+        
+        // 重置清理时间
+        this._lastCleanupTime = 0;
+        this._lastMoveState = false;
         
         console.log("🛑 PlayerController 清理完成");
     }
@@ -121,6 +157,13 @@ export class PlayerController extends Component {
     update(deltaTime: number) {
         if (!this._rigidbody) return;
         
+        // 定期检查重复组件（每5秒一次）
+        const currentTime = Date.now();
+        if (currentTime - this._lastCleanupTime > this.CLEANUP_CHECK_INTERVAL) {
+            this.runtimeCleanupCheck();
+            this._lastCleanupTime = currentTime;
+        }
+        
         // 获取屏幕边界
         const screenSize = view.getVisibleSize();
         const halfWidth = screenSize.width / 2;
@@ -130,7 +173,11 @@ export class PlayerController extends Component {
         const currentPos = this.node.position;
         
         // 检查边界并限制移动
-        let constrainedVelocity = this._moveDirection.clone().normalize().multiplyScalar(this.moveSpeed);
+        // 🔧 修复：避免对零向量进行normalize，防止NaN导致的异常行为
+        let constrainedVelocity = new Vec2(0, 0);
+        if (this._moveDirection.length() > 0.01) {
+            constrainedVelocity = this._moveDirection.clone().normalize().multiplyScalar(this.moveSpeed);
+        }
         
         // 检查X轴边界
         if (currentPos.x <= -halfWidth && constrainedVelocity.x < 0) {
@@ -149,11 +196,20 @@ export class PlayerController extends Component {
         // 应用约束后的速度
         this._rigidbody.linearVelocity = constrainedVelocity;
         
-        // 让玩家朝向移动方向
-        if (constrainedVelocity.length() > 0.1) {
-            const angle = Math.atan2(constrainedVelocity.y, constrainedVelocity.x);
-            const degrees = (angle * 180 / Math.PI) - 90;
-            this.node.angle = degrees;
+        // 🔧 修复：玩家使用8个固定方向，避免物理碰撞导致的随机旋转
+        if (this._moveDirection.length() > 0.1) {
+            const fixedAngle = this.getFixed8DirectionAngle(this._moveDirection);
+            this.node.angle = fixedAngle;
+        }
+        // 当没有输入时，保持当前固定角度不变
+        
+        // 调试信息（仅在移动状态变化时输出）
+        const isMoving = this._moveDirection.length() > 0.01;
+        if (isMoving !== this._lastMoveState) {
+            console.log(`🎮 玩家移动状态变化: ${isMoving ? '开始移动' : '停止移动'}`);
+            console.log(`  - 移动方向: (${this._moveDirection.x.toFixed(2)}, ${this._moveDirection.y.toFixed(2)})`);
+            console.log(`  - 固定角度: ${this.node.angle.toFixed(0)}° (${this.getDirectionName(this.node.angle)})`);
+            this._lastMoveState = isMoving;
         }
         
         // 确保位置不超出边界（双重保险）
@@ -162,6 +218,90 @@ export class PlayerController extends Component {
         
         if (clampedX !== currentPos.x || clampedY !== currentPos.y) {
             this.node.setPosition(clampedX, clampedY, currentPos.z);
+        }
+        
+        // 确保Sprite组件状态正确
+        if (this._sprite && this._sprite.isValid) {
+            if (!this._sprite.enabled) {
+                console.log("🔧 重新启用玩家Sprite组件");
+                this._sprite.enabled = true;
+            }
+        }
+    }
+
+    /**
+     * 计算8个固定方向的角度
+     * 防止物理碰撞导致的随机旋转
+     */
+    private getFixed8DirectionAngle(direction: Vec2): number {
+        // 8个固定方向的角度（以度为单位）
+        // 注意：Cocos Creator中，0度是向右，-90度是向上
+        const angles = {
+            right: 0,      // 右 →
+            downRight: 45, // 右下 ↘
+            down: 90,      // 下 ↓ 
+            downLeft: 135, // 左下 ↙
+            left: 180,     // 左 ←
+            upLeft: 225,   // 左上 ↖ (或 -135)
+            up: 270,       // 上 ↑ (或 -90)
+            upRight: 315   // 右上 ↗ (或 -45)
+        };
+
+        // 计算输入方向的角度
+        let inputAngle = Math.atan2(direction.y, direction.x) * 180 / Math.PI;
+        
+        // 确保角度在0-360范围内
+        if (inputAngle < 0) inputAngle += 360;
+
+        // 根据输入方向确定最接近的8个方向之一
+        if (direction.x > 0.7 && Math.abs(direction.y) < 0.7) {
+            // 主要向右
+            return angles.right;
+        } else if (direction.x > 0.7 && direction.y > 0.7) {
+            // 右下
+            return angles.downRight;
+        } else if (Math.abs(direction.x) < 0.7 && direction.y > 0.7) {
+            // 主要向下
+            return angles.down;
+        } else if (direction.x < -0.7 && direction.y > 0.7) {
+            // 左下
+            return angles.downLeft;
+        } else if (direction.x < -0.7 && Math.abs(direction.y) < 0.7) {
+            // 主要向左
+            return angles.left;
+        } else if (direction.x < -0.7 && direction.y < -0.7) {
+            // 左上
+            return angles.upLeft;
+        } else if (Math.abs(direction.x) < 0.7 && direction.y < -0.7) {
+            // 主要向上
+            return angles.up;
+        } else if (direction.x > 0.7 && direction.y < -0.7) {
+            // 右上
+            return angles.upRight;
+        }
+
+        // 默认向上（不应该到达这里）
+        return angles.up;
+    }
+
+    /**
+     * 根据角度获取方向名称（用于调试）
+     */
+    private getDirectionName(angle: number): string {
+        // 规范化角度到0-360范围
+        let normalizedAngle = angle % 360;
+        if (normalizedAngle < 0) normalizedAngle += 360;
+
+        switch (normalizedAngle) {
+            case 0: return "右→";
+            case 45: return "右下↘";
+            case 90: return "下↓";
+            case 135: return "左下↙";
+            case 180: return "左←";
+            case 225: return "左上↖";
+            case 270: return "上↑";
+            case 315: return "右上↗";
+            default: return `未知(${normalizedAngle}°)`;
         }
     }
 
@@ -198,6 +338,7 @@ export class PlayerController extends Component {
         });
 
         console.log(`🎯 触发${attackType}攻击`, targetData ? `目标: ${targetData.name} 距离: ${targetData.distance.toFixed(1)}` : '无目标');
+        console.log(`📍 玩家位置: (${playerPos.x.toFixed(1)}, ${playerPos.y.toFixed(1)})`);
     }
 
     /**
@@ -317,6 +458,122 @@ export class PlayerController extends Component {
     }
 
     /**
+     * 清理可能的重复组件
+     */
+    private cleanupDuplicateComponents() {
+        // 检查是否有重复的SkillManager组件
+        const skillManagers = this.node.getComponents(SkillManager);
+        if (skillManagers.length > 1) {
+            console.warn(`⚠️ 发现 ${skillManagers.length} 个SkillManager组件，清理重复组件`);
+            // 保留第一个，删除其他的
+            for (let i = 1; i < skillManagers.length; i++) {
+                console.log(`🗑️ 删除重复的SkillManager组件 ${i}`);
+                skillManagers[i].destroy();
+            }
+        }
+        
+        // 检查是否有重复的PlayerController组件
+        const playerControllers = this.node.getComponents(PlayerController);
+        if (playerControllers.length > 1) {
+            console.warn(`⚠️ 发现 ${playerControllers.length} 个PlayerController组件，这可能导致行为异常`);
+            // 不删除，但记录警告
+        }
+        
+        // 更彻底地处理重复的Sprite组件
+        const sprites = this.node.getComponents(Sprite);
+        if (sprites.length > 1) {
+            console.warn(`⚠️ 发现 ${sprites.length} 个Sprite组件，可能导致渲染问题`);
+            // 删除多余的Sprite组件而不是仅仅禁用
+            for (let i = 1; i < sprites.length; i++) {
+                console.log(`🗑️ 删除重复的Sprite组件 ${i}`);
+                sprites[i].destroy();
+            }
+        }
+        
+        // 检查是否有重复的RigidBody2D组件
+        const rigidbodies = this.node.getComponents(RigidBody2D);
+        if (rigidbodies.length > 1) {
+            console.warn(`⚠️ 发现 ${rigidbodies.length} 个RigidBody2D组件，可能导致物理行为异常`);
+            // 删除多余的RigidBody2D组件
+            for (let i = 1; i < rigidbodies.length; i++) {
+                console.log(`🗑️ 删除重复的RigidBody2D组件 ${i}`);
+                rigidbodies[i].destroy();
+            }
+        }
+        
+        // 检查子节点中是否有重复的玩家相关组件
+        this.cleanupChildNodes();
+    }
+    
+    /**
+     * 清理子节点中可能的重复玩家组件
+     */
+    private cleanupChildNodes() {
+        const children = this.node.children;
+        for (let i = children.length - 1; i >= 0; i--) {
+            const child = children[i];
+            
+            // 检查子节点是否也有PlayerController组件（这不应该存在）
+            const childPlayerController = child.getComponent(PlayerController);
+            if (childPlayerController) {
+                console.warn(`⚠️ 子节点 ${child.name} 有PlayerController组件，这可能导致问题`);
+                console.log(`🗑️ 删除子节点上的PlayerController组件`);
+                childPlayerController.destroy();
+            }
+            
+            // 检查是否有多余的玩家相关子节点
+            if (child.name.toLowerCase().includes('player') && child !== this.node) {
+                console.warn(`⚠️ 发现可能的重复玩家节点: ${child.name}`);
+                // 可以选择删除或重命名，这里先记录日志
+            }
+        }
+    }
+
+    /**
+     * 运行时清理检查 - 定期检查是否有新出现的重复组件
+     */
+    private runtimeCleanupCheck() {
+        // 检查Sprite组件数量
+        const sprites = this.node.getComponents(Sprite);
+        if (sprites.length > 1) {
+            console.warn(`🔍 运行时发现重复Sprite组件 (${sprites.length}个)，立即清理`);
+            for (let i = 1; i < sprites.length; i++) {
+                console.log(`🗑️ 运行时删除重复Sprite组件 ${i}`);
+                sprites[i].destroy();
+            }
+        }
+        
+        // 检查RigidBody2D组件数量
+        const rigidbodies = this.node.getComponents(RigidBody2D);
+        if (rigidbodies.length > 1) {
+            console.warn(`🔍 运行时发现重复RigidBody2D组件 (${rigidbodies.length}个)，立即清理`);
+            for (let i = 1; i < rigidbodies.length; i++) {
+                console.log(`🗑️ 运行时删除重复RigidBody2D组件 ${i}`);
+                rigidbodies[i].destroy();
+            }
+        }
+        
+        // 检查场景中是否有其他名为Player的节点
+        const scene = this.node.scene;
+        if (scene) {
+            const playerNodes = scene.getComponentsInChildren(PlayerController);
+            if (playerNodes.length > 1) {
+                console.warn(`🔍 场景中发现多个PlayerController (${playerNodes.length}个)`);
+                // 记录但不删除，因为这可能是合法的多玩家情况
+            }
+        }
+        
+        // 确保当前Sprite组件引用正确
+        if (!this._sprite || !this._sprite.isValid) {
+            console.log("🔧 重新获取Sprite组件引用");
+            this._sprite = this.getComponent(Sprite);
+            if (this._sprite) {
+                this._sprite.enabled = true;
+            }
+        }
+    }
+
+    /**
      * 初始化技能系统
      */
     private initializeSkills() {
@@ -327,6 +584,8 @@ export class PlayerController extends Component {
         if (!this.skillManager) {
             console.log("🔧 未找到SkillManager组件，自动添加");
             this.skillManager = this.node.addComponent(SkillManager);
+        } else {
+            console.log("✅ 找到现有的SkillManager组件");
         }
 
         if (this.skillManager) {
