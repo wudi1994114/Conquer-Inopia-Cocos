@@ -23,7 +23,8 @@ export class AttackSystem {
         LASER: 'laser',
         FIREBALL: 'fireball',
         FREEZE: 'freeze',
-        FLYING_DISC: 'flyingDisc'
+        FLYING_DISC: 'flyingDisc',
+        FIREBALL_EXTENSION: 'fireballExtension'
     } as const;
     
     /**

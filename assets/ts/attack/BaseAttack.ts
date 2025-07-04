@@ -24,6 +24,7 @@ export enum MovementMode {
     LINEAR = 'linear',           // 直线运动
     PROJECTILE = 'projectile',   // 抛物线运动
     TRACKING = 'tracking',       // 追踪运动
+    STATIC = 'static',           // 静态，不移动
     CUSTOM = 'custom'           // 自定义运动（子类实现）
 }
 
@@ -292,6 +293,9 @@ export abstract class BaseAttack extends Component {
             const direction = this.calculateDirection(currentPos, this._targetPosition, config);
             const velocity = this.calculateVelocity(direction, config);
             
+            // 确保方向向量被正确设置
+            this._direction.set(direction);
+
             console.log(`✅ ${this.getAttackName()}: 瞄准最近敌人成功 ${cachedTarget.name}`);
             console.log(`  - 当前位置: (${currentPos.x.toFixed(1)}, ${currentPos.y.toFixed(1)})`);
             console.log(`  - 目标位置: (${this._targetPosition.x.toFixed(1)}, ${this._targetPosition.y.toFixed(1)})`);
@@ -375,6 +379,12 @@ export abstract class BaseAttack extends Component {
      */
     private calculateDirection(fromPos: Vec3, toPos: Vec3, config: AimingConfig): Vec2 {
         const direction = new Vec2(toPos.x - fromPos.x, toPos.y - fromPos.y);
+
+        // 安全检查：如果向量长度过小，则使用默认方向，防止NaN错误
+        if (direction.lengthSqr() < 0.0001) {
+            console.warn(`⚠️ ${this.getAttackName()}: 目标位置与当前位置重合，使用默认方向`);
+            return new Vec2(1, 0); // 默认向右
+        }
         
         // 根据运动模式调整方向
         switch (config.movementMode) {

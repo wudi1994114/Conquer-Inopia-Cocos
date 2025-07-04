@@ -149,6 +149,26 @@ export const SKILL_CONFIGS: { [skillId: string]: SkillConfig } = {
         }
     },
 
+    // 火球扩展
+    fireballExtension: {
+        id: 'fireballExtension',
+        name: '献祭光环',
+        type: 'active',
+        description: '在脚下生成一个持续燃烧的光环，对范围内的敌人造成周期性伤害',
+        damage: 15, // 每次伤害的数值
+        cooldown: 10, // 技能冷却时间
+        maxLevel: 5,
+        upgradeScaling: {
+            damage: 5,      // 每级增加5点伤害
+            cooldown: -1    // 每级减少1秒冷却
+        },
+        properties: {
+            duration: 3,        // 光环持续3秒
+            radius: 150,        // 光环半径
+            damageInterval: 0.5 // 每0.5秒造成一次伤害
+        }
+    },
+
     // 多重射击（被动技能示例）
     multiShot: {
         id: 'multiShot',

@@ -94,8 +94,6 @@ export class Laser extends BaseAttack {
      * 注意：激光只使用瞄准系统计算方向，不应用任何移动逻辑
      */
     private adjustLaserDirection() {
-        console.log("⚡ 激光开始瞄准...");
-        console.log("🔍 激光瞄准诊断开始:");
         
         // 1. 检查当前时机
         const currentTime = Date.now();
@@ -138,9 +136,18 @@ export class Laser extends BaseAttack {
         // 首先尝试通过瞄准系统获取目标
         const aimingResult = this.executeAiming();
         
-        if (aimingResult.success) {
+        if (aimingResult.success && aimingResult.targetPosition) {
+            let direction = aimingResult.direction;
+
+            // 紧急修复：如果基础攻击类返回的方向向量无效，则在此处重新计算
+            if (direction.lengthSqr() < 0.0001) {
+                console.warn("⚠️ 激光检测到无效方向向量，重新计算...");
+                const laserPos = this.node.worldPosition;
+                const targetPos = aimingResult.targetPosition;
+                direction = new Vec2(targetPos.x - laserPos.x, targetPos.y - laserPos.y).normalize();
+            }
+
             // 瞄准成功，计算激光角度
-            const direction = aimingResult.direction;
             const angle = Math.atan2(direction.y, direction.x) * 180 / Math.PI;
             
             // 设置激光朝向目标（仅旋转角度，不移动位置）

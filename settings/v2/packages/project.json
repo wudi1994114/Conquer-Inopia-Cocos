@@ -26,5 +26,11 @@
       "3": 14,
       "4": 2
     }
+  },
+  "general": {
+    "designResolution": {
+      "width": 1920,
+      "height": 1080
+    }
   }
 }

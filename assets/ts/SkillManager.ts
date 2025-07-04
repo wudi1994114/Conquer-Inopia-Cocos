@@ -58,7 +58,8 @@ export class SkillManager extends Component {
             'laser': 'Laser',
             'fireball': 'Fireball',
             'freeze': 'Freeze',
-            'flyingDisc': 'FlyingDisc'
+            'flyingDisc': 'FlyingDisc',
+            'fireballExtension': 'FireballExtension' // 新增：将技能ID映射到预制体文件名
         };
         
         // 遍历所有技能预制体，根据名称建立映射
@@ -92,7 +93,7 @@ export class SkillManager extends Component {
      * 初始化基础技能
      */
     private initializeBasicSkills() {
-        const basicSkills = ['bullet', 'laser', 'fireball', 'freeze', 'flyingDisc', 'ring'];
+        const basicSkills = ['bullet', 'laser', 'fireball', 'freeze', 'flyingDisc', 'ring', 'fireballExtension'];
         
         basicSkills.forEach(skillId => {
             if (!this.acquireSkill(skillId)) {

@@ -129,7 +129,7 @@ export class PlayerController extends Component {
                 this.triggerAttack('fireball');
                 break;
             case KeyCode.KEY_R:
-                this.triggerAttack('freeze');
+                this.triggerAttack('fireballExtension');
                 break;
             case KeyCode.KEY_T:
                 this.triggerAttack('flyingDisc');
