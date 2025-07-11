@@ -1,0 +1,201 @@
+{
+  "ver": "1.0.8",
+  "importer": "sprite-atlas",
+  "imported": true,
+  "uuid": "9c3c1dcd-2a17-43d9-9d9b-80a731de1c4c",
+  "files": [
+    ".json"
+  ],
+  "subMetas": {
+    "85789": {
+      "importer": "sprite-frame",
+      "uuid": "9c3c1dcd-2a17-43d9-9d9b-80a731de1c4c@85789",
+      "displayName": "",
+      "id": "85789",
+      "name": "fireball-explode0",
+      "userData": {
+        "trimThreshold": 1,
+        "rotated": false,
+        "offsetX": 0,
+        "offsetY": 0,
+        "trimX": 0,
+        "trimY": 0,
+        "width": 128,
+        "height": 128,
+        "rawWidth": 128,
+        "rawHeight": 128,
+        "borderTop": 0,
+        "borderBottom": 0,
+        "borderLeft": 0,
+        "borderRight": 0,
+        "packable": true,
+        "pixelsToUnit": 100,
+        "pivotX": 0.5,
+        "pivotY": 0.5,
+        "meshType": 0,
+        "vertices": {
+          "rawPosition": [],
+          "indexes": [],
+          "uv": [],
+          "nuv": [],
+          "minPos": [],
+          "maxPos": []
+        },
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "2e32d161-3159-4516-9979-1c1c52b5ee13@6c48a",
+        "atlasUuid": "9c3c1dcd-2a17-43d9-9d9b-80a731de1c4c",
+        "trimType": "auto"
+      },
+      "ver": "1.0.12",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "20bae": {
+      "importer": "sprite-frame",
+      "uuid": "9c3c1dcd-2a17-43d9-9d9b-80a731de1c4c@20bae",
+      "displayName": "",
+      "id": "20bae",
+      "name": "fireball-explode1",
+      "userData": {
+        "trimThreshold": 1,
+        "rotated": false,
+        "offsetX": 0,
+        "offsetY": 0,
+        "trimX": 128,
+        "trimY": 0,
+        "width": 128,
+        "height": 128,
+        "rawWidth": 128,
+        "rawHeight": 128,
+        "borderTop": 0,
+        "borderBottom": 0,
+        "borderLeft": 0,
+        "borderRight": 0,
+        "packable": true,
+        "pixelsToUnit": 100,
+        "pivotX": 0.5,
+        "pivotY": 0.5,
+        "meshType": 0,
+        "vertices": {
+          "rawPosition": [],
+          "indexes": [],
+          "uv": [],
+          "nuv": [],
+          "minPos": [],
+          "maxPos": []
+        },
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "2e32d161-3159-4516-9979-1c1c52b5ee13@6c48a",
+        "atlasUuid": "9c3c1dcd-2a17-43d9-9d9b-80a731de1c4c",
+        "trimType": "auto"
+      },
+      "ver": "1.0.12",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "c8a97": {
+      "importer": "sprite-frame",
+      "uuid": "9c3c1dcd-2a17-43d9-9d9b-80a731de1c4c@c8a97",
+      "displayName": "",
+      "id": "c8a97",
+      "name": "fireball-explode2",
+      "userData": {
+        "trimThreshold": 1,
+        "rotated": false,
+        "offsetX": 0,
+        "offsetY": 0,
+        "trimX": 256,
+        "trimY": 0,
+        "width": 128,
+        "height": 128,
+        "rawWidth": 128,
+        "rawHeight": 128,
+        "borderTop": 0,
+        "borderBottom": 0,
+        "borderLeft": 0,
+        "borderRight": 0,
+        "packable": true,
+        "pixelsToUnit": 100,
+        "pivotX": 0.5,
+        "pivotY": 0.5,
+        "meshType": 0,
+        "vertices": {
+          "rawPosition": [],
+          "indexes": [],
+          "uv": [],
+          "nuv": [],
+          "minPos": [],
+          "maxPos": []
+        },
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "2e32d161-3159-4516-9979-1c1c52b5ee13@6c48a",
+        "atlasUuid": "9c3c1dcd-2a17-43d9-9d9b-80a731de1c4c",
+        "trimType": "auto"
+      },
+      "ver": "1.0.12",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "028a4": {
+      "importer": "sprite-frame",
+      "uuid": "9c3c1dcd-2a17-43d9-9d9b-80a731de1c4c@028a4",
+      "displayName": "",
+      "id": "028a4",
+      "name": "fireball-explode3",
+      "userData": {
+        "trimThreshold": 1,
+        "rotated": false,
+        "offsetX": 0,
+        "offsetY": 0,
+        "trimX": 384,
+        "trimY": 0,
+        "width": 128,
+        "height": 128,
+        "rawWidth": 128,
+        "rawHeight": 128,
+        "borderTop": 0,
+        "borderBottom": 0,
+        "borderLeft": 0,
+        "borderRight": 0,
+        "packable": true,
+        "pixelsToUnit": 100,
+        "pivotX": 0.5,
+        "pivotY": 0.5,
+        "meshType": 0,
+        "vertices": {
+          "rawPosition": [],
+          "indexes": [],
+          "uv": [],
+          "nuv": [],
+          "minPos": [],
+          "maxPos": []
+        },
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "2e32d161-3159-4516-9979-1c1c52b5ee13@6c48a",
+        "atlasUuid": "9c3c1dcd-2a17-43d9-9d9b-80a731de1c4c",
+        "trimType": "auto"
+      },
+      "ver": "1.0.12",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "atlasTextureName": "fireball.png",
+    "format": 3,
+    "uuid": "9c3c1dcd-2a17-43d9-9d9b-80a731de1c4c",
+    "textureUuid": "2e32d161-3159-4516-9979-1c1c52b5ee13@6c48a"
+  }
+}

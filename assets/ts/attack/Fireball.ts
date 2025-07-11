@@ -1,4 +1,4 @@
-import { _decorator, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, Vec3, Vec2, Node, instantiate, Sprite, Color, tween, UITransform, Graphics, Camera, director, Tween } from 'cc';
+import { _decorator, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, Vec3, Vec2, Node, instantiate, Sprite, Color, tween, UITransform, Graphics, Camera, director, Tween, SpriteFrame, resources, SpriteAtlas } from 'cc';
 import { Enemy } from '../Enemy';
 import { BaseAttack, AimingMode, MovementMode } from './BaseAttack';
 import { AttackSystem } from './AttackSystem';
@@ -12,7 +12,7 @@ export class Fireball extends BaseAttack {
     public explosionRadius: number = 100;
     
     @property({tooltip: '火球移动速度'})
-    public moveSpeed: number = 300;
+    public moveSpeed: number = 150;
     
     @property({tooltip: '目标位置'})
     public targetPosition: Vec3 = new Vec3();
@@ -26,11 +26,23 @@ export class Fireball extends BaseAttack {
     @property({tooltip: '爆炸粒子数量'})
     public explosionParticleCount: number = 12;
 
+    @property({tooltip: '旋转速度（度/秒）'})
+    public rotationSpeed: number = 180;
+
+    @property({tooltip: '爆炸动画帧率'})
+    public explosionFrameRate: number = 4;
+
     private _hasExploded: boolean = false; // 防止重复爆炸
     private _rigidbody: RigidBody2D | null = null;
     private _collider: Collider2D | null = null;
     private _sprite: Sprite | null = null;
     private _originalScale: Vec3 = new Vec3();
+    private _explosionPosition: Vec3 = new Vec3(); // 记录爆炸位置
+    
+    // 动画系统相关
+    private _fireballFrames: SpriteFrame[] = []; // 存储火球动画帧
+    private _isPlayingExplosion: boolean = false; // 是否正在播放爆炸动画
+    private _rotationDirection: number = 1; // 旋转方向：1或-1
 
     protected getAttackName(): string {
         return "火球";
@@ -85,40 +97,116 @@ export class Fireball extends BaseAttack {
             useWorldCoordinates: true
         });
         
-        // 初始化火球视觉效果
-        this.initializeVisualEffects();
+        // 初始化动画系统
+        this.initializeAnimation();
         
         console.log("🔥 火球参数:");
         console.log("  - 爆炸范围:", this.explosionRadius);
         console.log("  - 移动速度:", this.moveSpeed);
+        console.log("  - 旋转速度:", this.rotationSpeed);
         console.log("  - 已启用连续碰撞检测，防止穿透");
     }
 
     /**
-     * 初始化火球的视觉效果
+     * 初始化动画系统
      */
-    private initializeVisualEffects(): void {
-        if (this._sprite) {
-            // 设置火球的初始颜色为橙红色
-            this._sprite.color = new Color(255, 100, 0, 255);
+    private initializeAnimation() {
+        // 加载火球动画图集
+        resources.load("skill/fireball", SpriteAtlas, (err, atlas) => {
+            if (err) {
+                console.error("❌ 加载火球图集失败:", err);
+                this.initializeFallbackAnimation();
+                return;
+            }
             
-            // 添加火球飞行时的脉动效果
-            tween(this.node)
-                .repeatForever(
-                    tween()
-                        .to(0.3, { scale: new Vec3(1.2, 1.2, 1.2) })
-                        .to(0.3, { scale: this._originalScale })
-                )
-                .start();
-                
-            // 添加旋转效果
-            tween(this.node)
-                .repeatForever(
-                    tween()
-                        .by(1, { angle: 360 })
-                )
-                .start();
+            // 从图集中获取所有帧
+            this._fireballFrames = [];
+            
+            // 加载火球帧：fireball-explode0 到 fireball-explode3
+            for (let i = 0; i < 4; i++) {
+                const frameName = `fireball-explode${i}`;
+                const frame = atlas.getSpriteFrame(frameName);
+                if (frame) {
+                    this._fireballFrames.push(frame);
+                    console.log(`✅ 加载火球帧: ${frameName}`);
+                } else {
+                    console.warn(`⚠️ 未找到火球帧: ${frameName}`);
+                }
+            }
+            
+            if (this._fireballFrames.length >= 4) {
+                console.log("✅ 成功加载火球动画帧");
+                // 立即设置发射状态（第0帧用于发射状态）
+                this.setLaunchState();
+            } else {
+                console.error(`❌ 火球帧数量不正确，期望4个，实际${this._fireballFrames.length}个`);
+                this.initializeFallbackAnimation();
+            }
+        });
+    }
+
+    /**
+     * 初始化备用动画（当图集加载失败时）
+     */
+    private initializeFallbackAnimation() {
+        if (this._sprite && this._sprite.spriteFrame) {
+            console.log("🔄 使用当前精灵帧作为默认帧");
+            this._fireballFrames = [this._sprite.spriteFrame];
         }
+    }
+
+    /**
+     * 设置发射状态（使用第0帧并开始旋转）
+     */
+    private setLaunchState() {
+        if (!this._sprite || this._fireballFrames.length === 0) return;
+        
+        // 设置第0帧
+        this._sprite.spriteFrame = this._fireballFrames[0];
+        
+        // 随机旋转方向
+        this._rotationDirection = Math.random() > 0.5 ? 1 : -1;
+        
+        // 设置火球的初始颜色为橙红色
+        this._sprite.color = new Color(255, 100, 0, 255);
+        
+        console.log(`🔥 火球设置为发射状态，旋转方向: ${this._rotationDirection > 0 ? '顺时针' : '逆时针'}`);
+    }
+
+    /**
+     * 开始爆炸动画（火球本体消失，只显示爆炸范围效果）
+     */
+    private startExplosionAnimation() {
+        if (this._fireballFrames.length < 4) {
+            console.warn("⚠️ 火球帧数不足，无法播放爆炸动画");
+            return;
+        }
+        
+        this._isPlayingExplosion = true;
+        
+        // 停止旋转
+        Tween.stopAllByTarget(this.node);
+        
+        // 火球本体直接消失
+        if (this._sprite) {
+            this._sprite.enabled = false;
+            console.log("🔥 火球本体已消失");
+        }
+        
+        console.log("💥 火球消失，开始播放爆炸范围效果");
+    }
+
+
+
+    /**
+     * 更新发射状态的旋转动画
+     */
+    private updateLaunchRotation(deltaTime: number) {
+        if (this._isPlayingExplosion) return;
+        
+        // 持续旋转
+        const rotationDelta = this.rotationSpeed * deltaTime * this._rotationDirection;
+        this.node.angle += rotationDelta;
     }
 
     protected onAttackStart(): void {
@@ -157,6 +245,11 @@ export class Fireball extends BaseAttack {
     }
 
     protected onAttackUpdate(deltaTime: number): void {
+        // 更新发射状态的旋转动画（爆炸后不再需要更新）
+        if (!this._isPlayingExplosion) {
+            this.updateLaunchRotation(deltaTime);
+        }
+        
         // 检查是否接近目标位置
         if (!this._hasExploded && this.isNearTarget(20)) {
             console.log("🎯 火球到达目标位置，准备爆炸");
@@ -198,8 +291,12 @@ export class Fireball extends BaseAttack {
         }
         
         this._hasExploded = true;
+        
+        // 记录当前的爆炸位置（碰撞位置）
+        this._explosionPosition.set(this.node.worldPosition);
+        
         console.log("💥 火球爆炸！");
-        console.log("  - 爆炸世界位置:", this.node.worldPosition);
+        console.log("  - 爆炸世界位置:", this._explosionPosition);
         console.log("  - 爆炸范围:", this.explosionRadius);
         
         // 停止移动
@@ -228,10 +325,14 @@ export class Fireball extends BaseAttack {
         // 开始爆炸视觉效果
         this.playExplosionEffects();
         
-        // 延迟销毁，给爆炸效果时间显示
+        // 计算爆炸动画的实际持续时间
+        const explosionAnimationDuration = (this._fireballFrames.length - 1) / this.explosionFrameRate;
+        
+        // 延迟销毁，等待爆炸动画播放完毕
         this.scheduleOnce(() => {
+            console.log("🗑️ 爆炸效果播放完毕，销毁火球");
             this.destroyAttack();
-        }, this.explosionDuration);
+        }, explosionAnimationDuration + 0.1); // 额外0.1秒确保动画完全结束
     }
 
     /**
@@ -240,93 +341,113 @@ export class Fireball extends BaseAttack {
     private playExplosionEffects(): void {
         console.log("🎆 开始播放爆炸视觉效果");
         
-        // 1. 停止火球的飞行动画
-        Tween.stopAllByTarget(this.node);
+        // 1. 开始播放新的爆炸动画序列
+        this.startExplosionAnimation();
         
         // 2. 创建爆炸范围指示器
         this.createExplosionIndicator();
         
-        // 3. 火球本体爆炸动画
-        this.playFireballExplosionAnimation();
-        
-        // 4. 创建爆炸粒子效果
+        // 3. 创建爆炸粒子效果
         this.createExplosionParticles();
         
-        // 5. 屏幕震动效果
+        // 4. 屏幕震动效果
         this.triggerScreenShake();
     }
 
     /**
-     * 创建爆炸范围指示器
+     * 创建爆炸范围指示器（使用火球爆炸动画效果）
      */
     private createExplosionIndicator(): void {
+        if (this._fireballFrames.length < 4) {
+            console.warn("⚠️ 火球帧数不足，跳过爆炸范围指示器");
+            return;
+        }
+        
         const indicatorNode = new Node('ExplosionIndicator');
         indicatorNode.setParent(this.node.parent);
-        indicatorNode.setPosition(this.node.position);
+        // 使用记录的爆炸位置，确保在碰撞位置爆炸
+        indicatorNode.setWorldPosition(this._explosionPosition);
         
-        // 添加Graphics组件绘制爆炸范围圆圈
-        const graphics = indicatorNode.addComponent(Graphics);
-        graphics.lineWidth = 4;
-        graphics.strokeColor = new Color(255, 0, 0, 255); // 红色边框
-        graphics.fillColor = new Color(255, 100, 0, 80);  // 半透明橙色填充
+        // 添加Sprite组件显示爆炸动画
+        const sprite = indicatorNode.addComponent(Sprite);
+        sprite.spriteFrame = this._fireballFrames[1]; // 从第1帧开始
+        sprite.color = new Color(255, 150, 50, 200); // 橙红色半透明
         
-        // 绘制爆炸范围圆圈
-        graphics.circle(0, 0, this.explosionRadius);
-        graphics.fill();
-        graphics.stroke();
+        // 计算缩放比例，使爆炸效果覆盖爆炸范围
+        const frameSize = sprite.spriteFrame!.originalSize;
+        const scaleX = (this.explosionRadius * 2) / frameSize.width;
+        const scaleY = (this.explosionRadius * 2) / frameSize.height;
+        const scale = Math.max(scaleX, scaleY);
         
-        // 范围指示器动画：从小到大然后淡出
-        indicatorNode.scale = Vec3.ZERO;
-        tween(indicatorNode)
-            .to(0.2, { scale: new Vec3(1, 1, 1) })
-            .to(0.3, {}, { 
-                onUpdate: (target?: Node, ratio?: number) => {
-                    if (!target || ratio === undefined) return;
-                    const alpha = 255 * (1 - ratio);
-                    graphics.strokeColor = new Color(255, 0, 0, alpha);
-                    graphics.fillColor = new Color(255, 100, 0, alpha * 0.3);
-                    graphics.clear();
-                    graphics.circle(0, 0, this.explosionRadius);
-                    graphics.fill();
-                    graphics.stroke();
+        // 设置初始缩放
+        indicatorNode.scale = new Vec3(scale * 0.5, scale * 0.5, 1);
+        
+        console.log(`💥 创建爆炸范围指示器，缩放: ${scale.toFixed(2)}`);
+        
+        // 播放爆炸动画序列
+        let currentFrame = 1;
+        const frameInterval = 1 / this.explosionFrameRate;
+        
+        const playNextFrame = () => {
+            if (currentFrame >= this._fireballFrames.length) {
+                // 动画播放完毕，直接消失
+                console.log("🎆 爆炸范围动画播放完毕，直接消失");
+                if (indicatorNode && indicatorNode.isValid) {
+                    indicatorNode.destroy();
                 }
-            })
-            .call(() => {
-                indicatorNode.destroy();
-            })
-            .start();
+                return;
+            }
+            
+            // 检查节点是否还有效
+            if (!indicatorNode || !indicatorNode.isValid) {
+                console.log("⚠️ 爆炸范围指示器节点已无效，停止动画");
+                return;
+            }
+            
+            // 设置当前帧
+            sprite.spriteFrame = this._fireballFrames[currentFrame];
+            console.log(`💥 爆炸范围第${currentFrame}帧`);
+            currentFrame++;
+            
+            // 同时播放缩放动画
+            if (currentFrame === 2) {
+                // 第一帧时快速放大
+                tween(indicatorNode)
+                    .to(frameInterval, { scale: new Vec3(scale, scale, 1) })
+                    .start();
+            } else if (currentFrame === this._fireballFrames.length) {
+                // 最后一帧时稍微缩小
+                tween(indicatorNode)
+                    .to(frameInterval, { scale: new Vec3(scale * 0.8, scale * 0.8, 1) })
+                    .start();
+            }
+            
+            // 使用tween延迟来安排下一帧
+            tween(indicatorNode)
+                .delay(frameInterval)
+                .call(playNextFrame)
+                .start();
+        };
+        
+        // 开始播放动画
+        playNextFrame();
     }
 
-    /**
-     * 火球本体爆炸动画
-     */
-    private playFireballExplosionAnimation(): void {
-        if (!this._sprite) return;
-        
-        // 改变火球颜色为爆炸色
-        tween(this._sprite)
-            .to(0.1, { color: new Color(255, 255, 255, 255) }) // 闪白
-            .to(0.2, { color: new Color(255, 0, 0, 255) })     // 红色
-            .to(0.3, { color: new Color(255, 100, 0, 180) })   // 橙色半透明
-            .to(0.2, { color: new Color(255, 100, 0, 0) })     // 淡出
-            .start();
-        
-        // 火球缩放爆炸效果
-        tween(this.node)
-            .to(0.1, { scale: new Vec3(2, 2, 2) })          // 快速放大
-            .to(0.3, { scale: new Vec3(3, 3, 3) })          // 继续放大
-            .to(0.4, { scale: new Vec3(0.1, 0.1, 0.1) })    // 快速缩小
-            .start();
-    }
+
 
     /**
      * 创建爆炸粒子效果
      */
     private createExplosionParticles(): void {
+        // 计算爆炸动画持续时间，确保粒子效果不超过这个时间
+        const explosionAnimationDuration = (this._fireballFrames.length - 1) / this.explosionFrameRate;
+        const particleDuration = Math.min(0.6, explosionAnimationDuration * 0.8);
+        
         for (let i = 0; i < this.explosionParticleCount; i++) {
             const particleNode = new Node(`ExplosionParticle_${i}`);
             particleNode.setParent(this.node.parent);
-            particleNode.setPosition(this.node.position);
+            // 使用记录的爆炸位置，确保粒子从碰撞位置发散
+            particleNode.setWorldPosition(this._explosionPosition);
             
             // 添加Sprite组件作为粒子
             const sprite = particleNode.addComponent(Sprite);
@@ -351,15 +472,15 @@ export class Fireball extends BaseAttack {
             // 粒子飞散动画
             tween(particleNode)
                 .parallel(
-                    tween().to(0.6, { 
+                    tween().to(particleDuration, { 
                         position: new Vec3(
-                            this.node.position.x + targetX,
-                            this.node.position.y + targetY,
-                            0
+                            this._explosionPosition.x + targetX,
+                            this._explosionPosition.y + targetY,
+                            this._explosionPosition.z
                         )
                     }),
-                    tween().to(0.4, { scale: new Vec3(0.8, 0.8, 0.8) })
-                           .to(0.2, { scale: new Vec3(0, 0, 0) })
+                    tween().to(particleDuration * 0.7, { scale: new Vec3(0.8, 0.8, 0.8) })
+                           .to(particleDuration * 0.3, { scale: new Vec3(0, 0, 0) })
                 )
                 .call(() => {
                     particleNode.destroy();
@@ -368,8 +489,8 @@ export class Fireball extends BaseAttack {
             
             // 粒子颜色渐变
             tween(sprite)
-                .to(0.3, { color: new Color(255, 200, 0, 255) })
-                .to(0.3, { color: new Color(255, 100, 0, 0) })
+                .to(particleDuration * 0.5, { color: new Color(255, 200, 0, 255) })
+                .to(particleDuration * 0.5, { color: new Color(255, 100, 0, 0) })
                 .start();
         }
     }
@@ -419,8 +540,8 @@ export class Fireball extends BaseAttack {
         let hitCount = 0;
         
         for (const enemy of enemies) {
-            // 使用世界坐标计算爆炸距离
-            const distance = Vec3.distance(this.node.worldPosition, enemy.node.worldPosition);
+            // 使用记录的爆炸位置计算距离
+            const distance = Vec3.distance(this._explosionPosition, enemy.node.worldPosition);
             
             if (distance <= this.explosionRadius) {
                 console.log("💥 火球爆炸击中敌人:", enemy.node.name, "距离:", distance.toFixed(2));

@@ -252,6 +252,10 @@
       {
         "__uuid__": "2dbd8ca6-de92-4db2-b3b1-bae061d068db",
         "__expectedType__": "cc.Prefab"
+      },
+      {
+        "__uuid__": "7bec0abb-81c6-4ca4-82c5-a35560df88b1",
+        "__expectedType__": "cc.Prefab"
       }
     ],
     "_id": ""
@@ -275,6 +279,10 @@
     "moveSpeed": 5,
     "autoAttackRate": 1,
     "ringAttackInterval": 3,
+    "animationSpeed": 8,
+    "dashDistance": 200,
+    "dashDuration": 0.2,
+    "dashCooldown": 1,
     "_id": ""
   },
   {

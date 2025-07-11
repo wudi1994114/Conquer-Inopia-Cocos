@@ -24,7 +24,8 @@ export class AttackSystem {
         FIREBALL: 'fireball',
         FREEZE: 'freeze',
         FLYING_DISC: 'flyingDisc',
-        FIREBALL_EXTENSION: 'fireballExtension'
+        FIREBALL_EXTENSION: 'fireballExtension',
+        THUNDER_CHAIN: 'thunderChain'
     } as const;
     
     /**

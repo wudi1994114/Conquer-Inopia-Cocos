@@ -169,6 +169,27 @@ export const SKILL_CONFIGS: { [skillId: string]: SkillConfig } = {
         }
     },
 
+    // 闪电链
+    thunderChain: {
+        id: 'thunderChain',
+        name: '闪电链',
+        type: 'active',
+        description: '释放闪电链，在敌人之间跳跃造成伤害',
+        damage: 40,
+        cooldown: 3,
+        maxLevel: 8,
+        upgradeScaling: {
+            damage: 6,
+            cooldown: -0.1
+        },
+        properties: {
+            maxChainCount: 5,
+            maxChainDistance: 200,
+            damageDecay: 0.8,
+            lightningDuration: 0.8
+        }
+    },
+
     // 多重射击（被动技能示例）
     multiShot: {
         id: 'multiShot',

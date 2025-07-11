@@ -221,7 +221,7 @@
     "__prefab": {
       "__id__": 11
     },
-    "totalHealth": 100,
+    "totalHealth": 1000,
     "moveSpeed": 2,
     "stunDuration": 0.5,
     "damageFlashDuration": 0.3,

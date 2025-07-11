@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, input, Input, EventKeyboard, KeyCode, RigidBody2D, Vec2, view, Vec3, Sprite } from 'cc';
+import { _decorator, Component, Node, input, Input, EventKeyboard, KeyCode, RigidBody2D, Vec2, view, Vec3, Sprite, SpriteFrame, resources, SpriteAtlas, tween, Color } from 'cc';
 import { GameManager } from './GameManager';
 import { EventManager, GameEvents, emitPlayerAttack, TargetData } from './EventManager';
 import { SkillManager } from './SkillManager';
@@ -20,6 +20,18 @@ export class PlayerController extends Component {
     @property({ tooltip: '圆环攻击频率（每多少秒发射一次）' })
     public ringAttackInterval: number = 3;
 
+    @property({ tooltip: '动画播放速度（帧/秒）' })
+    public animationSpeed: number = 8;
+
+    @property({ tooltip: '冲刺距离' })
+    public dashDistance: number = 200;
+
+    @property({ tooltip: '冲刺持续时间（秒）' })
+    public dashDuration: number = 0.2;
+
+    @property({ tooltip: '冲刺冷却时间（秒）' })
+    public dashCooldown: number = 1.0;
+
     private skillManager: SkillManager | null = null;
 
     private _rigidbody: RigidBody2D | null = null;
@@ -28,6 +40,26 @@ export class PlayerController extends Component {
     private _lastCleanupTime: number = 0; // 上次清理检查的时间
     private readonly CLEANUP_CHECK_INTERVAL: number = 5000; // 每5秒检查一次重复组件
     private _lastMoveState: boolean = false; // 用于调试移动状态变化
+    
+    // 动画系统相关
+    private _playerFrames: SpriteFrame[] = []; // 存储玩家动画帧
+    private _currentDirection: string = 'down'; // 当前方向：up, right, down, left
+    private _currentFrameIndex: number = 0; // 当前帧索引
+    private _animationTimer: number = 0; // 动画计时器
+    private _isMoving: boolean = false; // 是否正在移动
+    
+    // 冲刺系统相关
+    private _isDashing: boolean = false; // 是否正在冲刺
+    private _dashCooldownTimer: number = 0; // 冲刺冷却计时器
+    private _dashDirection: Vec2 = new Vec2(); // 冲刺方向
+
+    // 方向枚举，根据用户需求：每三个图分别是上、右、下、左
+    private readonly DIRECTION_FRAMES: { [key: string]: number[] } = {
+        up: [0, 1, 2],      // 上：帧0-2
+        right: [3, 4, 5],   // 右：帧3-5  
+        down: [6, 7, 8],    // 下：帧6-8
+        left: [9, 10, 11]   // 左：帧9-11
+    };
 
     onLoad() {
         
@@ -50,6 +82,9 @@ export class PlayerController extends Component {
             // 确保精灵组件状态正确
             this._sprite.enabled = true;
         }
+
+        // 初始化动画系统
+        this.initializeAnimation();
 
         // 清理可能的重复组件
         this.cleanupDuplicateComponents();
@@ -119,9 +154,6 @@ export class PlayerController extends Component {
             case KeyCode.ARROW_RIGHT:
                 this._moveDirection.x = 1;
                 break;
-            case KeyCode.SPACE:
-                this.triggerAttack('bullet');
-                break;
             case KeyCode.KEY_Q:
                 this.triggerAttack('laser');
                 break;
@@ -133,6 +165,12 @@ export class PlayerController extends Component {
                 break;
             case KeyCode.KEY_T:
                 this.triggerAttack('flyingDisc');
+                break;
+            case KeyCode.KEY_F:
+                this.triggerAttack('thunderChain');
+                break;
+            case KeyCode.SPACE:
+                this.triggerDash();
                 break;
         }
     }
@@ -156,6 +194,15 @@ export class PlayerController extends Component {
 
     update(deltaTime: number) {
         if (!this._rigidbody) return;
+        
+        // 更新冲刺冷却时间
+        if (this._dashCooldownTimer > 0) {
+            this._dashCooldownTimer -= deltaTime;
+            if (this._dashCooldownTimer <= 0) {
+                this._dashCooldownTimer = 0;
+                console.log("⚡ 冲刺冷却完成");
+            }
+        }
         
         // 定期检查重复组件（每5秒一次）
         const currentTime = Date.now();
@@ -193,22 +240,31 @@ export class PlayerController extends Component {
             constrainedVelocity.y = 0;
         }
         
-        // 应用约束后的速度
-        this._rigidbody.linearVelocity = constrainedVelocity;
-        
-        // 🔧 修复：玩家使用8个固定方向，避免物理碰撞导致的随机旋转
-        if (this._moveDirection.length() > 0.1) {
-            const fixedAngle = this.getFixed8DirectionAngle(this._moveDirection);
-            this.node.angle = fixedAngle;
+        // 冲刺期间禁用正常移动
+        if (this._isDashing) {
+            this._rigidbody.linearVelocity = Vec2.ZERO;
+        } else {
+            // 应用约束后的速度
+            this._rigidbody.linearVelocity = constrainedVelocity;
         }
-        // 当没有输入时，保持当前固定角度不变
+        
+        // 更新动画系统
+        const isMoving = this._moveDirection.length() > 0.01;
+        const newDirection = this.getDirectionFromMovement(this._moveDirection);
+        
+        // 检查方向或移动状态是否改变
+        if (newDirection !== this._currentDirection || isMoving !== this._isMoving) {
+            this.setDirection(newDirection, isMoving);
+        }
+        
+        // 更新动画帧
+        this.updateAnimation(deltaTime);
         
         // 调试信息（仅在移动状态变化时输出）
-        const isMoving = this._moveDirection.length() > 0.01;
         if (isMoving !== this._lastMoveState) {
             console.log(`🎮 玩家移动状态变化: ${isMoving ? '开始移动' : '停止移动'}`);
             console.log(`  - 移动方向: (${this._moveDirection.x.toFixed(2)}, ${this._moveDirection.y.toFixed(2)})`);
-            console.log(`  - 固定角度: ${this.node.angle.toFixed(0)}° (${this.getDirectionName(this.node.angle)})`);
+            console.log(`  - 动画方向: ${this._currentDirection}`);
             this._lastMoveState = isMoving;
         }
         
@@ -339,6 +395,142 @@ export class PlayerController extends Component {
 
         console.log(`🎯 触发${attackType}攻击`, targetData ? `目标: ${targetData.name} 距离: ${targetData.distance.toFixed(1)}` : '无目标');
         console.log(`📍 玩家位置: (${playerPos.x.toFixed(1)}, ${playerPos.y.toFixed(1)})`);
+    }
+
+    /**
+     * 触发冲刺
+     */
+    private triggerDash() {
+        // 检查冲刺冷却
+        if (this._dashCooldownTimer > 0) {
+            console.log(`⏰ 冲刺冷却中，还需${this._dashCooldownTimer.toFixed(1)}秒`);
+            return;
+        }
+        
+        // 检查是否已在冲刺
+        if (this._isDashing) {
+            console.log("⚡ 正在冲刺中，无法再次冲刺");
+            return;
+        }
+        
+        // 确定冲刺方向
+        if (this._moveDirection.length() > 0.1) {
+            // 有移动输入，朝移动方向冲刺
+            this._dashDirection.set(this._moveDirection.clone().normalize());
+        } else {
+            // 没有移动输入，朝当前朝向冲刺
+            switch (this._currentDirection) {
+                case 'up':
+                    this._dashDirection.set(0, 1);
+                    break;
+                case 'down':
+                    this._dashDirection.set(0, -1);
+                    break;
+                case 'left':
+                    this._dashDirection.set(-1, 0);
+                    break;
+                case 'right':
+                    this._dashDirection.set(1, 0);
+                    break;
+                default:
+                    this._dashDirection.set(0, -1); // 默认向下
+                    break;
+            }
+        }
+        
+        console.log(`⚡ 开始冲刺，方向: (${this._dashDirection.x.toFixed(2)}, ${this._dashDirection.y.toFixed(2)})`);
+        
+        // 开始冲刺
+        this.startDash();
+    }
+
+    /**
+     * 开始冲刺
+     */
+    private startDash() {
+        this._isDashing = true;
+        this._dashCooldownTimer = this.dashCooldown;
+        
+        // 计算目标位置
+        const currentPos = this.node.position;
+        const targetPos = new Vec3(
+            currentPos.x + this._dashDirection.x * this.dashDistance,
+            currentPos.y + this._dashDirection.y * this.dashDistance,
+            currentPos.z
+        );
+        
+        // 检查边界限制
+        const screenSize = view.getVisibleSize();
+        const halfWidth = screenSize.width / 2;
+        const halfHeight = screenSize.height / 2;
+        
+        targetPos.x = Math.max(-halfWidth, Math.min(halfWidth, targetPos.x));
+        targetPos.y = Math.max(-halfHeight, Math.min(halfHeight, targetPos.y));
+        
+        console.log(`🎯 冲刺目标位置: (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)})`);
+        
+        // 创建残影效果
+        this.createAfterimage();
+        
+        // 执行冲刺动画
+        tween(this.node)
+            .to(this.dashDuration, { position: targetPos }, {
+                easing: 'quadOut'
+            })
+            .call(() => {
+                this._isDashing = false;
+                console.log("⚡ 冲刺完成");
+            })
+            .start();
+        
+        // 冲刺期间禁用物理移动
+        if (this._rigidbody) {
+            this._rigidbody.linearVelocity = Vec2.ZERO;
+        }
+    }
+
+    /**
+     * 创建残影效果
+     */
+    private createAfterimage() {
+        if (!this._sprite || !this._sprite.spriteFrame) return;
+        
+        const afterimageCount = 5; // 残影数量
+        const afterimageInterval = this.dashDuration / afterimageCount;
+        
+        for (let i = 0; i < afterimageCount; i++) {
+            this.scheduleOnce(() => {
+                this.createSingleAfterimage();
+            }, i * afterimageInterval);
+        }
+    }
+
+    /**
+     * 创建单个残影
+     */
+    private createSingleAfterimage() {
+        if (!this._sprite || !this._sprite.spriteFrame || !this.node.parent) return;
+        
+        const afterimageNode = new Node('Afterimage');
+        afterimageNode.setParent(this.node.parent);
+        afterimageNode.setPosition(this.node.position);
+        afterimageNode.setRotation(this.node.rotation);
+        afterimageNode.setScale(this.node.scale);
+        
+        // 添加Sprite组件
+        const afterimageSprite = afterimageNode.addComponent(Sprite);
+        afterimageSprite.spriteFrame = this._sprite.spriteFrame;
+        afterimageSprite.color = new Color(255, 255, 255, 150); // 半透明白色
+        
+        console.log("👻 创建残影");
+        
+        // 残影淡出动画
+        tween(afterimageSprite)
+            .to(0.3, { color: new Color(255, 255, 255, 0) })
+            .call(() => {
+                afterimageNode.destroy();
+            })
+            .start();
     }
 
     /**
@@ -604,6 +796,137 @@ export class PlayerController extends Component {
             console.log("  - SkillManager 已通过 PlayerController 自动管理");
         } else {
             console.error("❌ 无法创建技能管理器！");
+        }
+    }
+
+    /**
+     * 初始化动画系统
+     */
+    private initializeAnimation() {
+        // 加载玩家动画图集
+        resources.load("player/player", SpriteAtlas, (err, atlas) => {
+            if (err) {
+                console.error("❌ 加载玩家图集失败:", err);
+                return;
+            }
+            
+            // 从图集中获取所有帧
+            this._playerFrames = [];
+            for (let i = 0; i < 12; i++) {
+                const frameNumber = i < 10 ? `0${i}` : `${i}`;
+                const frameName = `player${frameNumber}`;
+                const frame = atlas.getSpriteFrame(frameName);
+                if (frame) {
+                    this._playerFrames.push(frame);
+                    console.log(`✅ 加载动画帧: ${frameName}`);
+                } else {
+                    console.warn(`⚠️ 未找到动画帧: ${frameName}`);
+                }
+            }
+            
+            if (this._playerFrames.length === 12) {
+                console.log("✅ 成功加载12个玩家动画帧");
+                // 设置默认动画（下方向第一帧）
+                this.setDirection('down', false);
+            } else {
+                console.error(`❌ 动画帧数量不正确，期望12个，实际${this._playerFrames.length}个`);
+                
+                // 如果加载失败，尝试使用当前的sprite frame
+                if (this._sprite && this._sprite.spriteFrame) {
+                    console.log("🔄 使用当前精灵帧作为默认帧");
+                    this._playerFrames = [this._sprite.spriteFrame];
+                }
+            }
+        });
+    }
+
+    /**
+     * 设置玩家朝向和动画状态
+     * @param direction 方向：up, right, down, left
+     * @param isMoving 是否正在移动
+     */
+    private setDirection(direction: string, isMoving: boolean) {
+        if (!this._sprite) return;
+        
+        this._currentDirection = direction;
+        this._isMoving = isMoving;
+        this._animationTimer = 0;
+        
+        // 如果没有动画帧，使用默认处理
+        if (this._playerFrames.length === 0) {
+            console.warn("⚠️ 没有可用的动画帧，使用默认精灵");
+            return;
+        }
+        
+        // 获取对应方向的帧数组
+        const frames = this.DIRECTION_FRAMES[direction];
+        if (!frames) {
+            console.warn(`⚠️ 未知方向: ${direction}`);
+            return;
+        }
+        
+        if (isMoving) {
+            // 移动时播放动画，从第一帧开始
+            this._currentFrameIndex = 0;
+            const frameIndex = frames[0];
+            if (this._playerFrames[frameIndex]) {
+                this._sprite.spriteFrame = this._playerFrames[frameIndex];
+                console.log(`🎬 开始播放${direction}方向动画，起始帧: ${frameIndex}`);
+            }
+        } else {
+            // 停止时显示该方向的第一帧
+            this._currentFrameIndex = 0;
+            const frameIndex = frames[0];
+            if (this._playerFrames[frameIndex]) {
+                this._sprite.spriteFrame = this._playerFrames[frameIndex];
+                console.log(`⏸️ 停止动画，显示${direction}方向第一帧: ${frameIndex}`);
+            }
+        }
+    }
+
+    /**
+     * 根据移动方向获取对应的方向字符串
+     */
+    private getDirectionFromMovement(moveDirection: Vec2): string {
+        if (moveDirection.length() < 0.1) {
+            return this._currentDirection; // 保持当前方向
+        }
+        
+        // 根据主要移动方向确定朝向
+        if (Math.abs(moveDirection.x) > Math.abs(moveDirection.y)) {
+            // 水平移动为主
+            return moveDirection.x > 0 ? 'right' : 'left';
+        } else {
+            // 垂直移动为主
+            return moveDirection.y > 0 ? 'up' : 'down';
+        }
+    }
+
+    /**
+     * 更新动画
+     */
+    private updateAnimation(deltaTime: number) {
+        if (!this._sprite || this._playerFrames.length === 0 || !this._isMoving) return;
+        
+        this._animationTimer += deltaTime;
+        const frameInterval = 1 / this.animationSpeed;
+        
+        if (this._animationTimer >= frameInterval) {
+            this._animationTimer -= frameInterval;
+            
+            // 获取当前方向的帧数组
+            const frames = this.DIRECTION_FRAMES[this._currentDirection];
+            if (frames && frames.length > 0) {
+                // 循环播放动画帧
+                this._currentFrameIndex = (this._currentFrameIndex + 1) % frames.length;
+                const frameIndex = frames[this._currentFrameIndex];
+                
+                if (this._playerFrames[frameIndex]) {
+                    this._sprite.spriteFrame = this._playerFrames[frameIndex];
+                    // 仅在调试模式下输出帧切换信息
+                    // console.log(`🎞️ 切换到${this._currentDirection}方向第${this._currentFrameIndex}帧: ${frameIndex}`);
+                }
+            }
         }
     }
 }

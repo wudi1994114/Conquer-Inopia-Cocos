@@ -9,4 +9,5 @@ export { Ring } from './Ring';
 export { Laser } from './Laser';
 export { Fireball } from './Fireball';
 export { Freeze } from './Freeze';
-export { FlyingDisc } from './FlyingDisc'; 
+export { FlyingDisc } from './FlyingDisc';
+export { ThunderChain } from './ThunderChain'; 
