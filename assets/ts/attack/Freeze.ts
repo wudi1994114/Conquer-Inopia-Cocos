@@ -1,5 +1,5 @@
-import { _decorator, Vec3 } from 'cc';
-import { Enemy } from '../Enemy';
+import { _decorator, Vec3, Node } from 'cc';
+import { EnemyController } from '../EnemyController';
 import { BaseAttack } from './BaseAttack';
 import { AttackSystem } from './AttackSystem';
 
@@ -17,10 +17,10 @@ export class Freeze extends BaseAttack {
     @property({tooltip: '移动速度减缓比例（0-1）'})
     public slowRatio: number = 0.5;
     
-    @property({tooltip: '冰冻效果存在时间（秒）'})
+    @property({tooltip: '效果持续时间（秒）'})
     public effectDuration: number = 1;
 
-    private _frozenEnemies: Map<Enemy, number> = new Map(); // 记录被冰冻的敌人和原始速度
+    private _frozenEnemies: Set<Node> = new Set(); // 记录被冰冻的敌人节点
 
     protected getAttackName(): string {
         return "冰冻";
@@ -59,94 +59,80 @@ export class Freeze extends BaseAttack {
         let hitCount = 0;
         let frozenCount = 0;
         
-        for (const enemy of enemies) {
-            const distance = Vec3.distance(this.node.position, enemy.node.position);
+        for (const enemyNode of enemies) {
+            const distance = Vec3.distance(this.node.position, enemyNode.position);
             
             if (distance <= this.freezeRadius) {
                 // 造成伤害
-                if (!this.hasHitEnemy(enemy.node)) {
-                    console.log("❄️ 冰冻击中敌人:", enemy.node.name, "距离:", distance.toFixed(2));
-                    
-                    const damageSuccessful = this.dealDamageToEnemy(enemy, this.getAttackType());
-                    if (damageSuccessful) {
-                        this.markEnemyAsHit(enemy.node);
-                        hitCount++;
+                if (!this.isEnemyHit(enemyNode)) {
+                    const enemyScript = enemyNode.getComponent(EnemyController);
+                    if (enemyScript) {
+                        console.log("❄️ 冰冻击中敌人:", enemyNode.name, "距离:", distance.toFixed(2));
+                        const damageSuccessful = this.dealDamageToEnemy(enemyScript, this.getAttackType());
+                        if (damageSuccessful) {
+                            this.markEnemyAsHit(enemyNode);
+                            hitCount++;
+                        }
                     }
                 }
                 
                 // 应用冰冻效果（减速）
-                this.applyFreezeEffect(enemy);
-                frozenCount++;
+                const enemyScript = enemyNode.getComponent(EnemyController);
+                if (enemyScript) {
+                    this.applyFreezeEffect(enemyScript);
+                    frozenCount++;
+                }
             }
         }
         
         console.log("📊 冰冻攻击统计: 击中", hitCount, "个敌人, 冰冻", frozenCount, "个敌人");
     }
     
-    private applyFreezeEffect(enemy: Enemy) {
-        if (this._frozenEnemies.has(enemy)) {
+    private applyFreezeEffect(enemy: EnemyController) {
+        const enemyNode = enemy.node;
+        if (this._frozenEnemies.has(enemyNode)) {
             return; // 已经被冰冻了
         }
         
-        console.log("🧊 对敌人应用冰冻效果:", enemy.node.name);
+        console.log("🧊 对敌人应用冰冻效果:", enemyNode.name);
         
-        // 假设Enemy有moveSpeed属性（需要根据实际Enemy实现调整）
-        // 这里我们通过敌人的标记来记录冰冻状态
-        const originalSpeed = this.getEnemyMoveSpeed(enemy);
-        const newSpeed = originalSpeed * (1 - this.slowRatio);
-        
-        this._frozenEnemies.set(enemy, originalSpeed);
-        this.setEnemyMoveSpeed(enemy, newSpeed);
-        
-        console.log("  - 原始速度:", originalSpeed);
-        console.log("  - 冰冻后速度:", newSpeed);
+        // 使用新的速度修正接口
+        const modifierId = `freeze_${this.uuid}`; // 创建一个唯一的修正ID
+        enemy.applySpeedModifier(modifierId, 1 - this.slowRatio);
+        this._frozenEnemies.add(enemyNode);
         
         // 设置冰冻持续时间
         this.scheduleOnce(() => {
-            this.removeFreezeEffect(enemy);
+            this.removeFreezeEffect(enemy, modifierId);
         }, this.freezeDuration);
     }
     
-    private removeFreezeEffect(enemy: Enemy) {
-        if (!this._frozenEnemies.has(enemy)) {
+    private removeFreezeEffect(enemy: EnemyController, modifierId: string) {
+        if (!enemy || !enemy.isValid) {
+            this._frozenEnemies.delete(enemy.node);
             return;
         }
-        
-        if (enemy && enemy.node && enemy.node.isValid) {
-            const originalSpeed = this._frozenEnemies.get(enemy);
-            this.setEnemyMoveSpeed(enemy, originalSpeed);
-            console.log("🔥 移除敌人的冰冻效果:", enemy.node.name, "恢复速度:", originalSpeed);
+
+        if (this._frozenEnemies.has(enemy.node)) {
+            enemy.removeSpeedModifier(modifierId);
+            console.log("🔥 移除敌人的冰冻效果:", enemy.node.name);
+            this._frozenEnemies.delete(enemy.node);
         }
-        
-        this._frozenEnemies.delete(enemy);
-    }
-    
-    // 这些方法需要根据实际Enemy实现来调整
-    private getEnemyMoveSpeed(enemy: Enemy): number {
-        // 假设Enemy有moveSpeed属性，或者通过其他方式获取速度
-        // 这里返回一个默认值，实际使用时需要根据Enemy的实现来修改
-        return (enemy as any).moveSpeed || 100;
-    }
-    
-    private setEnemyMoveSpeed(enemy: Enemy, speed: number) {
-        // 假设Enemy有moveSpeed属性，或者通过其他方式设置速度
-        // 实际使用时需要根据Enemy的实现来修改
-        if ((enemy as any).moveSpeed !== undefined) {
-            (enemy as any).moveSpeed = speed;
-        }
-        
-        // 也可以通过标记来让Enemy自己处理减速效果
-        (enemy as any).isFrozen = speed < this.getEnemyMoveSpeed(enemy);
-        (enemy as any).freezeSpeedMultiplier = speed / this.getEnemyMoveSpeed(enemy);
     }
     
     protected onAttackDestroy(): void {
         console.log("  - 当前被冰冻敌人数量:", this._frozenEnemies.size);
         
         // 清除所有冰冻效果
-        for (const enemy of this._frozenEnemies.keys()) {
-            this.removeFreezeEffect(enemy);
-        }
+        this._frozenEnemies.forEach(enemyNode => {
+            if (enemyNode && enemyNode.isValid) {
+                const enemyScript = enemyNode.getComponent(EnemyController);
+                if (enemyScript) {
+                    this.removeFreezeEffect(enemyScript, `freeze_${this.uuid}`);
+                }
+            }
+        });
+        this._frozenEnemies.clear();
     }
     
     protected onAttackComponentDestroy(): void {

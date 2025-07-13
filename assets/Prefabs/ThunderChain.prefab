@@ -87,7 +87,7 @@
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
-      "x": 0,
+      "x": 0.5,
       "y": 0.5
     },
     "_id": ""
@@ -118,13 +118,10 @@
       "b": 255,
       "a": 255
     },
-    "_spriteFrame": {
-      "__uuid__": "a89f9e4a-8001-47e7-8961-7f893125cfde@37d3e",
-      "__expectedType__": "cc.SpriteFrame"
-    },
+    "_spriteFrame": null,
     "_type": 0,
     "_fillType": 0,
-    "_sizeMode": 0,
+    "_sizeMode": 2,
     "_fillCenter": {
       "__type__": "cc.Vec2",
       "x": 0,
@@ -134,10 +131,7 @@
     "_fillRange": 0,
     "_isTrimmedMode": true,
     "_useGrayscale": false,
-    "_atlas": {
-      "__uuid__": "a89f9e4a-8001-47e7-8961-7f893125cfde",
-      "__expectedType__": "cc.SpriteAtlas"
-    },
+    "_atlas": null,
     "_id": ""
   },
   {
@@ -156,10 +150,10 @@
     "__prefab": {
       "__id__": 7
     },
-    "damage": 10,
+    "damage": 40,
     "maxChainCount": 5,
     "maxChainDistance": 20000,
-    "lightningDuration": 3.0,
+    "lightningDuration": 0.8,
     "animationFrameRate": 12,
     "damageDecay": 0.8,
     "_id": ""

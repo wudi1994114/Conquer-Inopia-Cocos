@@ -1,16 +1,20 @@
-import { _decorator, Component, Node, Prefab, instantiate, Vec2, view, director } from 'cc';
-import { Enemy } from './Enemy';
+import { _decorator, Component, Node, Prefab, instantiate, Vec2, view, director, Layers, Camera } from 'cc';
 import { ComponentFixer } from './ComponentFixer';
 import { PhysicsGroups } from './PhysicsGroups';
 import { PhysicsSystem2D } from 'cc';
+import { EnemyController } from './EnemyController';
+import { enemyDatabase } from './configs/enemy-config';
+import { ResourceManager } from './ResourceManager';
 
 const { ccclass, property } = _decorator;
 
 @ccclass('GameManager')
 export class GameManager extends Component {
 
-    @property({ type: Prefab, tooltip: '请将敌人的预制体拖拽到这里' })
+    @property({ type: Prefab, tooltip: '请将通用的敌人预制体（挂载了EnemyController脚本）拖拽到这里' })
     public enemyPrefab: Prefab | null = null;
+
+
 
     @property({ type: Prefab, tooltip: '请将玩家的预制体拖拽到这里' })
     public playerPrefab: Prefab | null = null;
@@ -27,6 +31,8 @@ export class GameManager extends Component {
     @property({ tooltip: '目标更新间隔（秒）' })
     public targetUpdateInterval: number = 0.15; // 每150ms更新一次目标
 
+
+
     public activeEnemies: Node[] = [];
     public playerNode: Node | null = null; // 实例化后的玩家节点
     
@@ -35,6 +41,35 @@ export class GameManager extends Component {
     private lastTargetUpdateTime: number = 0;
 
     start() {
+        // 🚀 首先预加载所有资源
+        this.preloadAllResources();
+    }
+
+    /**
+     * 预加载所有游戏资源
+     */
+    private async preloadAllResources(): Promise<void> {
+        console.log('🚀 GameManager: 开始预加载所有游戏资源...');
+        
+        try {
+            // 使用ResourceManager预加载所有资源
+            await ResourceManager.getInstance().preloadAllResources();
+            console.log('✅ GameManager: 所有资源预加载完成，开始初始化游戏');
+            
+            // 资源加载完成后，初始化游戏
+            this.initializeGame();
+            
+        } catch (error) {
+            console.error('❌ GameManager: 资源预加载失败，但继续初始化游戏:', error);
+            // 即使预加载失败，也要初始化游戏
+            this.initializeGame();
+        }
+    }
+
+    /**
+     * 初始化游戏逻辑
+     */
+    private initializeGame(): void {
         // 🔧 重要：在游戏开始时强制应用代码中定义的物理碰撞矩阵
         // 这可以防止因编辑器设置错误或被遗忘导致的碰撞问题
         if (PhysicsSystem2D.instance) {
@@ -44,9 +79,12 @@ export class GameManager extends Component {
             console.error("❌ GameManager Error: 无法找到物理系统实例！");
         }
         
+        // 🔧 检查摄像机层级设置
+        this.checkCameraLayerSettings();
+        
         // 分别检查每个必需的组件
         if (!this.enemyPrefab) {
-            console.error("❌ GameManager Error: 缺少 Enemy Prefab！请在编辑器中设置 enemyPrefab 字段。");
+            console.error("❌ GameManager Error: 缺少敌人预制体！请在编辑器中设置 enemyPrefab 字段。");
             return;
         }
         
@@ -63,6 +101,71 @@ export class GameManager extends Component {
         
         // 启动目标更新定时器
         this.schedule(this.updateNearestEnemy, this.targetUpdateInterval);
+        
+        console.log('🎮 GameManager: 游戏初始化完成');
+    }
+
+    /**
+     * 检查摄像机层级设置
+     */
+    private checkCameraLayerSettings(): void {
+        // 查找场景中的摄像机 - 使用多种方法
+        const scene = director.getScene();
+        if (!scene) {
+            console.warn('⚠️ GameManager: 无法找到场景');
+            return;
+        }
+        
+        let camera: Camera | null = null;
+        
+        // 方法1: 在Canvas下查找Camera
+        const canvas = scene.getChildByName('Canvas');
+        if (canvas) {
+            const cameraNode = canvas.getChildByName('Camera');
+            if (cameraNode) {
+                camera = cameraNode.getComponent(Camera);
+                console.log('✅ 在Canvas下找到摄像机');
+            }
+        }
+        
+        // 方法2: 直接在场景中查找Camera组件
+        if (!camera) {
+            const cameraNode = scene.getComponentInChildren(Camera);
+            if (cameraNode) {
+                camera = cameraNode.getComponent(Camera);
+                console.log('✅ 在场景中找到摄像机组件');
+            }
+        }
+        
+        // 方法3: 使用find方法查找
+        if (!camera) {
+            const cameraNode = scene.getChildByPath('Canvas/Camera');
+            if (cameraNode) {
+                camera = cameraNode.getComponent(Camera);
+                console.log('✅ 通过路径找到摄像机');
+            }
+        }
+        
+        if (!camera) {
+            console.warn('⚠️ GameManager: 无法找到摄像机，跳过层级检查');
+            return;
+        }
+        
+        // 检查摄像机的可见性掩码
+        const visibility = camera.visibility;
+        const defaultLayerMask = Layers.Enum.DEFAULT; // 使用正确的DEFAULT层掩码
+        
+        console.log(`📷 摄像机层级检查:`);
+        console.log(`  - 摄像机可见性掩码: ${visibility}`);
+        console.log(`  - DEFAULT层掩码: ${defaultLayerMask}`);
+        console.log(`  - 是否包含DEFAULT层: ${(visibility & defaultLayerMask) !== 0 ? '是' : '否'}`);
+        
+        // 正常情况下摄像机应该包含DEFAULT层
+        if ((visibility & defaultLayerMask) !== 0) {
+            console.log('✅ 摄像机层级设置正确，包含DEFAULT层');
+        } else {
+            console.warn('⚠️ 摄像机不包含DEFAULT层，这可能导致对象不可见');
+        }
     }
 
     /**
@@ -77,29 +180,32 @@ export class GameManager extends Component {
         // 实例化玩家预制体
         const player = instantiate(this.playerPrefab);
         
-        // 安全的父节点设置
-        let parentNode = null;
-        if (this.node && this.node.isValid && this.node.parent && this.node.parent.isValid) {
-            parentNode = this.node.parent;
-        } else if (this.node && this.node.isValid && this.node.scene && this.node.scene.isValid) {
-            parentNode = this.node.scene;
-            console.warn('⚠️ GameManager: 使用场景根节点作为玩家父节点');
-        } else {
-            const scene = director.getScene();
-            if (scene && scene.isValid) {
-                parentNode = scene;
-                console.warn('⚠️ GameManager: 使用导演场景作为玩家父节点');
-            }
-        }
-        
-        if (!parentNode || !parentNode.isValid) {
-            console.error('❌ GameManager: 无法找到合适的父节点来生成玩家');
+        // 🔧 修复：玩家应该生成在Canvas内，而不是场景根节点
+        const scene = director.getScene();
+        if (!scene) {
+            console.error('❌ GameManager: 无法找到场景');
             this.safeDestroyNode(player, '玩家');
             return;
         }
         
+        const canvas = scene.getChildByName('Canvas');
+        if (!canvas) {
+            console.error('❌ GameManager: 无法找到Canvas节点');
+            this.safeDestroyNode(player, '玩家');
+            return;
+        }
+        
+        console.log(`✅ 找到Canvas节点，将玩家生成在Canvas内`);
+        
         try {
-            player.setParent(parentNode);
+            player.setParent(canvas);
+            
+            // 🔧 使用 Layers.Enum.DEFAULT（这是正确的DEFAULT层）
+            const correctLayer = Layers.Enum.DEFAULT;
+            if (player.layer !== correctLayer) {
+                console.log(`🔧 修复玩家预制体层级从 ${player.layer} 到 DEFAULT(${correctLayer})`);
+                player.layer = correctLayer;
+            }
             
             // 使用专门的玩家组件修复方法
             ComponentFixer.fixPlayerComponents(player);
@@ -118,51 +224,62 @@ export class GameManager extends Component {
     }
 
     spawnEnemy() {
+        console.log(`🔄 spawnEnemy 被调用，当前敌人数量: ${this.activeEnemies.length}/${this.maxEnemies}`);
+        
         // 检查当前敌人数量是否已达上限
         if (this.activeEnemies.length >= this.maxEnemies) {
+            console.log(`⚠️ 敌人数量已达上限 (${this.maxEnemies})，跳过生成`);
             return; // 达到上限，则不生成
         }
 
         if (!this.enemyPrefab) {
-            console.error('❌ GameManager：缺少敌人预制体，无法生成敌人');
+            console.error('❌ GameManager：没有设置通用的敌人预制体');
             return;
         }
+        
+        console.log(`✅ 开始生成敌人，使用预制体: ${this.enemyPrefab.name}`);
 
-        const enemy = instantiate(this.enemyPrefab);
+        const enemyNode = instantiate(this.enemyPrefab);
         
-        // 安全的父节点设置
-        let parentNode = null;
-        if (this.node && this.node.isValid && this.node.parent && this.node.parent.isValid) {
-            parentNode = this.node.parent;
-        } else if (this.node && this.node.isValid && this.node.scene && this.node.scene.isValid) {
-            parentNode = this.node.scene;
-            console.warn('⚠️ GameManager: 使用场景根节点作为父节点');
-        } else {
-            const scene = director.getScene();
-            if (scene && scene.isValid) {
-                parentNode = scene;
-                console.warn('⚠️ GameManager: 使用导演场景作为父节点');
-            }
-        }
-        
-        if (!parentNode || !parentNode.isValid) {
-            console.error('❌ GameManager: 无法找到合适的父节点来生成敌人');
-            this.safeDestroyNode(enemy, '敌人');
+        // 🔧 修复：敌人应该生成在Canvas内，而不是场景根节点
+        const scene = director.getScene();
+        if (!scene) {
+            console.error('❌ GameManager: 无法找到场景');
+            enemyNode.destroy();
             return;
         }
+        
+        const canvas = scene.getChildByName('Canvas');
+        if (!canvas) {
+            console.error('❌ GameManager: 无法找到Canvas节点');
+            enemyNode.destroy();
+            return;
+        }
+        
+        console.log(`✅ 找到Canvas节点，将敌人生成在Canvas内`);
         
         try {
-            enemy.setParent(parentNode);
+            enemyNode.setParent(canvas);
             
-            // 自动修复敌人缺失的组件
-            ComponentFixer.fixEnemyComponents(enemy);
+            // 🔧 使用 Layers.Enum.DEFAULT（这是正确的DEFAULT层）
+            const correctLayer = Layers.Enum.DEFAULT;
+            if (enemyNode.layer !== correctLayer) {
+                console.log(`🔧 修复敌人预制体层级从 ${enemyNode.layer} 到 DEFAULT(${correctLayer})`);
+                enemyNode.layer = correctLayer;
+            }
             
-            // 🔧 启用物理分组系统：设置敌人为ENEMY分组
-            PhysicsGroups.configureEnemyPhysics(enemy);
-            console.log("🛡️ 已配置敌人的物理分组，将正确与玩家攻击发生碰撞");
+            // 检查 EnemyController 组件是否存在
+            const enemyController = enemyNode.getComponent('EnemyController');
+            if (!enemyController) {
+                console.error('❌ GameManager: 敌人预制体缺少 EnemyController 组件');
+                enemyNode.destroy();
+                return;
+            }
+            
+            PhysicsGroups.configureEnemyPhysics(enemyNode);
         } catch (error) {
             console.error('❌ GameManager: 设置敌人父节点时发生错误:', error);
-            this.safeDestroyNode(enemy, '敌人');
+            enemyNode.destroy();
             return;
         }
 
@@ -175,36 +292,103 @@ export class GameManager extends Component {
         let spawnX = 0;
         let spawnY = 0;
 
-        switch (side) {
-            case 0: // Top
-                spawnX = (Math.random() - 0.5) * screenWidth;
-                spawnY = screenHeight / 2 + this.spawnBuffer;
-                break;
-            case 1: // Bottom
-                spawnX = (Math.random() - 0.5) * screenWidth;
-                spawnY = -screenHeight / 2 - this.spawnBuffer;
-                break;
-            case 2: // Left
-                spawnX = -screenWidth / 2 - this.spawnBuffer;
-                spawnY = (Math.random() - 0.5) * screenHeight;
-                break;
-            case 3: // Right
-                spawnX = screenWidth / 2 + this.spawnBuffer;
-                spawnY = (Math.random() - 0.5) * screenHeight;
-                break;
+        // 🔧 修复：使用摄像机视野范围而不是屏幕尺寸
+        // 摄像机正交高度约为 661，所以视野宽度约为 1178 (661 * 1920/1080)
+        const cameraHeight = 661;
+        const cameraWidth = cameraHeight * (screenWidth / screenHeight);
+        const safeBuffer = 50; // 🔧 减少缓冲区，让敌人更接近视野边缘
+        
+        // 🔧 临时测试：让敌人在玩家附近生成
+        const testMode = true;
+        if (testMode) {
+            // 🔧 优化：在玩家周围300-600像素范围内生成，更合理的距离
+            const angle = Math.random() * Math.PI * 2;
+            const distance = 300 + Math.random() * 300; // 300-600像素距离
+            spawnX = Math.cos(angle) * distance;
+            spawnY = Math.sin(angle) * distance;
+            console.log(`🧪 测试模式：敌人在玩家附近生成 (${spawnX.toFixed(1)}, ${spawnY.toFixed(1)}) 距离: ${distance.toFixed(1)}`);
+        } else {
+            switch (side) {
+                case 0: // Top
+                    spawnX = (Math.random() - 0.5) * (cameraWidth - 200); // 🔧 减少生成范围
+                    spawnY = cameraHeight / 2 - safeBuffer; // 🔧 在视野内生成
+                    break;
+                case 1: // Bottom
+                    spawnX = (Math.random() - 0.5) * (cameraWidth - 200);
+                    spawnY = -cameraHeight / 2 + safeBuffer; // 🔧 在视野内生成
+                    break;
+                case 2: // Left
+                    spawnX = -cameraWidth / 2 + safeBuffer; // 🔧 在视野内生成
+                    spawnY = (Math.random() - 0.5) * (cameraHeight - 200);
+                    break;
+                case 3: // Right
+                    spawnX = cameraWidth / 2 - safeBuffer; // 🔧 在视野内生成
+                    spawnY = (Math.random() - 0.5) * (cameraHeight - 200);
+                    break;
+            }
+        }
+        
+        console.log(`📍 敌人生成位置: 边缘${side} (${spawnX.toFixed(1)}, ${spawnY.toFixed(1)})`);
+
+        // 🔧 添加摄像机视野范围调试信息
+        console.log(`📷 摄像机视野信息:`);
+        console.log(`  - 屏幕尺寸: ${screenWidth}x${screenHeight}`);
+        console.log(`  - 摄像机视野: ${cameraWidth.toFixed(1)}x${cameraHeight.toFixed(1)}`);
+        console.log(`  - 生成缓冲区: ${safeBuffer}px`);
+        console.log(`  - 敌人是否在视野内: ${Math.abs(spawnX) < cameraWidth/2 && Math.abs(spawnY) < cameraHeight/2 ? '是' : '否'}`);
+
+        enemyNode.setPosition(spawnX, spawnY, 0);
+        
+        // 🔧 调试信息：显示敌人最终位置
+        console.log(`📍 敌人最终位置: (${spawnX.toFixed(1)}, ${spawnY.toFixed(1)})`);
+        console.log(`📍 敌人世界位置: (${enemyNode.worldPosition.x.toFixed(1)}, ${enemyNode.worldPosition.y.toFixed(1)})`);
+
+        // --- 数据驱动的核心部分 ---
+        const enemyId = this.selectEnemyId(); // 随机选择一个敌人类型
+        const controller = enemyNode.getComponent(EnemyController);
+
+        // 🔧 添加详细的调试信息
+        console.log(`🔍 敌人初始化检查:`);
+        console.log(`  - EnemyController组件: ${controller ? '存在' : '不存在'}`);
+        console.log(`  - 玩家节点: ${this.playerNode ? '存在' : '不存在'}`);
+        if (this.playerNode) {
+            console.log(`  - 玩家节点名称: ${this.playerNode.name}`);
+            console.log(`  - 玩家节点有效性: ${this.playerNode.isValid ? '有效' : '无效'}`);
+            console.log(`  - 玩家节点位置: (${this.playerNode.position.x.toFixed(1)}, ${this.playerNode.position.y.toFixed(1)})`);
         }
 
-        enemy.setPosition(spawnX, spawnY, 0);
-
-        // 将关键信息传递给新生成的敌人
-        const enemyScript = enemy.getComponent(Enemy);
-        if (enemyScript && this.playerNode) {
-            enemyScript.playerNode = this.playerNode;
-            enemyScript.gameManager = this; 
+        if (controller && this.playerNode) {
+            // 🔧 设置玩家节点引用
+            controller.playerNode = this.playerNode;
+            controller.gameManager = this;
+            
+            console.log(`✅ 敌人引用设置完成:`);
+            console.log(`  - 敌人的playerNode: ${controller.playerNode ? '已设置' : '未设置'}`);
+            console.log(`  - 敌人的gameManager: ${controller.gameManager ? '已设置' : '未设置'}`);
+            
+            // 初始化敌人
+            controller.init(enemyId);
+        } else {
+            if (!controller) console.error(`❌ Prefab上缺少 EnemyController 脚本!`);
+            if (!this.playerNode) console.error(`❌ 玩家节点尚未初始化!`);
+            enemyNode.destroy();
+            return;
         }
 
         // 将新敌人登记到活跃列表中
-        this.activeEnemies.push(enemy);
+        this.activeEnemies.push(enemyNode);
+    }
+
+    /**
+     * 根据一定规则或随机选择一个敌人的ID
+     */
+    private selectEnemyId(): string {
+        // 简单实现：50%概率生成普通树人，50%概率生成精英巫妖
+        const enemyIds = ['ent_normal', 'lich_elite'];
+        const randomIndex = Math.floor(Math.random() * enemyIds.length);
+        const selectedId = enemyIds[randomIndex];
+        console.log(`👹 本次生成敌人ID: ${selectedId}`);
+        return selectedId;
     }
 
     /**
@@ -288,13 +472,6 @@ export class GameManager extends Component {
         this.cachedNearestEnemy = nearestEnemy;
         this.lastTargetUpdateTime = Date.now();
         
-        // 添加调试信息
-        if (nearestEnemy) {
-            const enemyPos = nearestEnemy.worldPosition;
-            console.log(`🎯 缓存更新：玩家位置(${playerPos.x.toFixed(1)}, ${playerPos.y.toFixed(1)}) 最近敌人位置(${enemyPos.x.toFixed(1)}, ${enemyPos.y.toFixed(1)}) 距离:${minDistance.toFixed(1)}`);
-        } else {
-            console.log("🎯 缓存更新：未找到有效敌人");
-        }
     }
     
     /**

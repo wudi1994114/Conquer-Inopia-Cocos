@@ -1,5 +1,5 @@
 import { _decorator, Component, Node, Collider2D, Vec3, Vec2, RigidBody2D } from 'cc';
-import { Enemy } from '../Enemy';
+import { EnemyController } from '../EnemyController';
 import { AttackSystem, AttackTypeValue } from './AttackSystem';
 import { SkillConfig, SkillInstance, SkillUtils, SkillGlobalConfig } from './skill-config';
 import { EventManager, GameEvents, PlayerAttackEventData } from '../EventManager';
@@ -57,11 +57,10 @@ export interface AimingResult {
 @ccclass('BaseAttack')
 export abstract class BaseAttack extends Component {
 
-    @property({tooltip: '攻击造成的伤害值（基础值，会被配置覆盖）'})
-    public damage: number = 10;
-
+    public gameManager: GameManager | null = null; // 添加 Game Manager 引用
+    protected damage: number = 0; // 伤害值
     protected _version: number = 0; // 攻击版本号
-    protected _hitEnemies: Set<Node> = new Set(); // 记录已击中的敌人，防止重复伤害
+    private _hitEnemies: Set<Node> = new Set(); // 用于记录已击中的敌人
     
     // ========== 瞄准系统属性 ==========
     protected _aimingConfig: AimingConfig | null = null; // 瞄准配置
@@ -95,41 +94,30 @@ export abstract class BaseAttack extends Component {
     }
 
     /**
-     * 对敌人造成伤害
-     * @param enemy 敌人组件
-     * @param attackType 攻击类型
-     * @param customVersion 自定义版本号（可选）
-     * @returns 是否成功造成伤害
+     * 造成伤害的通用方法
+     * @param enemyScript 敌人的脚本组件
+     * @returns boolean - 是否成功造成伤害
      */
-    protected dealDamageToEnemy(enemy: Enemy, attackType: AttackTypeValue, customVersion?: number): boolean {
-        const attackVersion = customVersion || this._version;
-        
-        // 使用全局调控后的实际伤害
-        const actualDamage = SkillGlobalConfig.getActualDamage(this.damage);
-        
-        const damageSuccessful = enemy.takeDamage(actualDamage, attackType, attackVersion);
-        
-        if (damageSuccessful) {
-            // 发布攻击命中事件
-            EventManager.emit(GameEvents.ATTACK_HIT, {
-                attackType: this.getAttackType(),
-                damage: actualDamage,
-                target: enemy.node.name,
-                version: attackVersion
-            });
-            
-            this.onDamageDealt(enemy);
-            return true;
-        } else {
-            // 发布攻击未命中事件
-            EventManager.emit(GameEvents.ATTACK_MISS, {
-                attackType: this.getAttackType(),
-                target: enemy.node.name,
-                version: attackVersion
-            });
-            
+    protected dealDamageToEnemy(enemyScript: EnemyController, attackType: AttackTypeValue): boolean {
+        if (!enemyScript || !enemyScript.isValid) {
             return false;
         }
+
+        const damage = this.getDamage();
+        enemyScript.takeDamage(damage, attackType, this._version);
+        
+        // 发布攻击命中事件
+        EventManager.emit(GameEvents.ATTACK_HIT, {
+            attackType: this.getAttackType(),
+            damage: damage,
+            target: enemyScript.node.name,
+            version: this._version
+        });
+
+        // 调用命中回调，用于触发子类的特殊逻辑（如弹射）
+        this.onDamageDealt(enemyScript);
+        
+        return true;
     }
 
     /**
@@ -150,11 +138,28 @@ export abstract class BaseAttack extends Component {
     }
 
     /**
-     * 获取所有场景中的敌人
-     * @returns 敌人组件数组
+     * 检查一个敌人是否已被击中
      */
-    protected getAllEnemies(): Enemy[] {
-        return this.node.parent?.getComponentsInChildren(Enemy) || [];
+    protected isEnemyHit(enemyNode: Node): boolean {
+        return this._hitEnemies.has(enemyNode);
+    }
+
+    /**
+     * 重置已击中列表（用于可多次造成伤害的攻击）
+     */
+    protected resetHitEnemies(): void {
+        this._hitEnemies.clear();
+    }
+
+    /**
+     * 获取所有敌人
+     * @returns Enemy[]
+     */
+    protected getAllEnemies(): Node[] {
+        if (this.gameManager && this.gameManager.activeEnemies) {
+            return this.gameManager.activeEnemies;
+        }
+        return [];
     }
 
     /**
@@ -172,7 +177,27 @@ export abstract class BaseAttack extends Component {
      * @returns 是否应该执行攻击
      */
     protected shouldExecuteAttack(): boolean {
-        // 检查是否有敌人
+        // 🔧 对于圆环攻击，无论是否有敌人都应该执行（圆环需要扩散）
+        if (this.getAttackType() === AttackSystem.AttackType.RING) {
+            return true;
+        }
+        
+        // 🔧 对于冰冻攻击，也应该无论是否有敌人都执行（范围效果）
+        if (this.getAttackType() === AttackSystem.AttackType.FREEZE) {
+            return true;
+        }
+        
+        // 🔧 对于火球扩展（AOE光环），也应该无论是否有敌人都执行
+        if (this.getAttackType() === AttackSystem.AttackType.FIREBALL_EXTENSION) {
+            return true;
+        }
+        
+        // 🔧 对于闪电链，也应该无论是否有敌人都执行（会在内部判断并处理）
+        if (this.getAttackType() === AttackSystem.AttackType.THUNDER_CHAIN) {
+            return true;
+        }
+        
+        // 对于其他攻击类型，检查是否有敌人
         if (!this.hasEnemiesAvailable()) {
             return false;
         }
@@ -233,6 +258,28 @@ export abstract class BaseAttack extends Component {
     onDestroy() {
         this._hitEnemies.clear();
         this.onAttackComponentDestroy();
+    }
+
+    /**
+     * 初始化攻击组件
+     * @param skillInstance 技能实例
+     * @param gameManager 游戏管理器
+     */
+    public init(skillInstance: SkillInstance, gameManager: GameManager): void {
+        this.damage = skillInstance.config.damage; // 从 config 中获取伤害
+        this.gameManager = gameManager;
+        // 获取该攻击类型的版本号
+        this._version = AttackSystem.getNextAttackVersion(this.getAttackType());
+        
+        // 调用子类的初始化方法
+        this.onAttackLoad();
+    }
+
+    /**
+     * 获取当前攻击的伤害值
+     */
+    protected getDamage(): number {
+        return SkillGlobalConfig.getActualDamage(this.damage);
     }
 
     // ========== 瞄准系统方法 ==========
@@ -502,7 +549,7 @@ export abstract class BaseAttack extends Component {
      * 成功造成伤害时调用（可选重写）
      * @param enemy 被攻击的敌人
      */
-    protected onDamageDealt(enemy: Enemy): void {
+    protected onDamageDealt(enemy: EnemyController): void {
         // 默认不做任何事，子类可以重写
     }
 
@@ -560,7 +607,7 @@ export abstract class BaseAttack extends Component {
         }
 
         // 检查是否是敌人
-        const enemyScript = otherCollider.getComponent(Enemy);
+        const enemyScript = otherCollider.getComponent(EnemyController);
         if (!enemyScript) {
             return false;
         }

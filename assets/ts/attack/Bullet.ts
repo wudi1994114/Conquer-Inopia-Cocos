@@ -1,5 +1,5 @@
 import { _decorator, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, Vec3, Vec2 } from 'cc';
-import { Enemy } from '../Enemy';
+import { EnemyController } from '../EnemyController';
 import { BaseAttack, AimingMode, MovementMode } from './BaseAttack';
 import { AttackSystem } from './AttackSystem';
 
@@ -109,7 +109,7 @@ export class Bullet extends BaseAttack {
         }
         
         // 简化判断：直接检查碰撞对象类型
-        const enemyScript = otherCollider.getComponent(Enemy);
+        const enemyScript = otherCollider.getComponent(EnemyController);
         const isPlayer = otherCollider.node.name.toLowerCase().includes('player') || 
                          otherCollider.node.parent?.name.toLowerCase().includes('player');
         

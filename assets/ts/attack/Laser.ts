@@ -1,5 +1,5 @@
 import { _decorator, Vec3, Graphics, Color, Vec2, RigidBody2D, Node } from 'cc';
-import { Enemy } from '../Enemy';
+import { EnemyController } from '../EnemyController';
 import { BaseAttack, AimingMode, MovementMode } from './BaseAttack';
 import { AttackSystem } from './AttackSystem';
 import { GameManager } from '../GameManager';
@@ -226,15 +226,17 @@ export class Laser extends BaseAttack {
         const enemies = this.getAllEnemies();
         let hitCount = 0;
         
-        for (const enemy of enemies) {
-            if (this.isEnemyInLaserPath(enemy.node)) {
-                if (!this.hasHitEnemy(enemy.node)) {
-                    console.log("⚡ 激光击中敌人:", enemy.node.name);
-                    
-                    const damageSuccessful = this.dealDamageToEnemy(enemy, this.getAttackType());
-                    if (damageSuccessful) {
-                        this.markEnemyAsHit(enemy.node);
-                        hitCount++;
+        for (const enemyNode of enemies) {
+            if (this.isEnemyInLaserPath(enemyNode)) {
+                if (!this.isEnemyHit(enemyNode)) {
+                    const enemyScript = enemyNode.getComponent(EnemyController);
+                     if (enemyScript) {
+                        console.log("⚡ 激光击中敌人:", enemyNode.name);
+                        const damageSuccessful = this.dealDamageToEnemy(enemyScript, this.getAttackType());
+                        if (damageSuccessful) {
+                            this.markEnemyAsHit(enemyNode);
+                            hitCount++;
+                        }
                     }
                 }
             }
@@ -243,7 +245,7 @@ export class Laser extends BaseAttack {
         console.log("📊 激光攻击统计: 击中", hitCount, "个敌人");
     }
     
-    private isEnemyInLaserPath(enemyNode: any): boolean {
+    private isEnemyInLaserPath(enemyNode: Node): boolean {
         // 将敌人位置转换到激光的本地坐标系
         const laserWorldPos = this.node.getWorldPosition();
         const enemyWorldPos = enemyNode.getWorldPosition();

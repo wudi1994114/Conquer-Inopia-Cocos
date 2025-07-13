@@ -1,6 +1,7 @@
 import { _decorator, Color, Graphics, v3, Vec3 } from 'cc';
 import { BaseAttack, AimingMode, MovementMode } from './BaseAttack';
 import { AttackSystem } from './AttackSystem';
+import { EnemyController } from '../EnemyController';
 
 const { ccclass, property } = _decorator;
 
@@ -81,17 +82,20 @@ export class FireballExtension extends BaseAttack {
         const enemies = this.getAllEnemies();
         let hitCount = 0;
 
-        for (const enemy of enemies) {
-            if (enemy && enemy.node && enemy.node.isValid) {
-                const distance = Vec3.distance(this.node.worldPosition, enemy.node.worldPosition);
+        for (const enemyNode of enemies) {
+            if (enemyNode && enemyNode.isValid) {
+                const distance = Vec3.distance(this.node.worldPosition, enemyNode.worldPosition);
                 if (distance <= this.radius) {
-                    const damageDealt = this.damage;
-                    console.log(`[火球扩展] 尝试对 ${enemy.node.name} (距离: ${distance.toFixed(1)}) 造成 ${damageDealt} 点伤害`);
-                    
-                    const damageSuccessful = this.dealDamageToEnemy(enemy, this.getAttackType());
-                    if (damageSuccessful) {
-                        hitCount++;
-                        console.log(`[火球扩展] ...成功对 ${enemy.node.name} 造成伤害！`);
+                    const enemyScript = enemyNode.getComponent(EnemyController);
+                    if (enemyScript) {
+                        const damageDealt = this.damage;
+                        console.log(`[火球扩展] 尝试对 ${enemyNode.name} (距离: ${distance.toFixed(1)}) 造成 ${damageDealt} 点伤害`);
+                        
+                        const damageSuccessful = this.dealDamageToEnemy(enemyScript, this.getAttackType());
+                        if (damageSuccessful) {
+                            hitCount++;
+                            console.log(`[火球扩展] ...成功对 ${enemyNode.name} 造成伤害！`);
+                        }
                     }
                 }
             }

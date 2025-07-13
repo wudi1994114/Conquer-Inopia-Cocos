@@ -1,9 +1,9 @@
 import { _decorator, Component, Node, Prefab, instantiate, Vec2, RigidBody2D, director, Vec3 } from 'cc';
 import { SKILL_CONFIGS, SkillInstance, SkillUtils } from './attack/skill-config';
 import { EventManager, GameEvents, PlayerAttackEventData, TargetData } from './EventManager';
-import { ComponentFixer } from './ComponentFixer';
 import { GameManager } from './GameManager';
 import { PhysicsGroups } from './PhysicsGroups';
+import { AttackSystem } from './attack/AttackSystem'; // 引入 AttackSystem
 
 const { ccclass, property } = _decorator;
 
@@ -25,6 +25,7 @@ export class SkillManager extends Component {
     
     // 绑定的事件处理器引用（修复内存泄漏）
     private boundPlayerAttackHandler!: (data: PlayerAttackEventData) => void;
+    private boundAttackHitHandler!: (data: any) => void;
     
     // 动态构建的技能预制体映射（基于名称而非索引）
     private skillPrefabMap: Map<string, Prefab> = new Map();
@@ -32,6 +33,7 @@ export class SkillManager extends Component {
     onLoad() {
         // 绑定事件处理器一次并保存引用
         this.boundPlayerAttackHandler = this.onPlayerAttack.bind(this);
+        this.boundAttackHitHandler = this.onAttackHit.bind(this);
         
         // 构建技能预制体映射
         this.buildSkillPrefabMap();
@@ -109,6 +111,7 @@ export class SkillManager extends Component {
     private subscribeToEvents() {
         // 使用保存的绑定引用来监听事件
         EventManager.on(GameEvents.PLAYER_ATTACK, this.boundPlayerAttackHandler);
+        EventManager.on(GameEvents.ATTACK_HIT, this.boundAttackHitHandler);
     }
 
     /**
@@ -120,6 +123,21 @@ export class SkillManager extends Component {
         
         // 触发被动技能
         this.triggerPassiveSkills(data);
+    }
+    
+    /**
+     * 攻击命中事件处理
+     */
+    private onAttackHit(data: any) {
+        // 可以在这里根据 data.attackType 来触发特定技能的后续效果
+        // 例如：闪电链的弹射
+        if (data.attackType === AttackSystem.AttackType.THUNDER_CHAIN) {
+            // 闪电链的弹射逻辑已经在 ThunderChain.ts 内部处理，
+            // 这里可以用来触发一些全局效果，比如“每次弹射伤害增加”等
+        }
+        
+        // 其他需要“命中后触发”的技能逻辑也可以在这里添加
+        console.log(`⚡️ 接到攻击命中事件: ${data.attackType}, 目标: ${data.target}`);
     }
 
     /**
@@ -454,19 +472,8 @@ export class SkillManager extends Component {
             skillNode.setParent(parentNode);
             skillNode.setWorldPosition(position.x, position.y, 0);
             
-            // 添加位置调试信息
-            console.log(`📍 SkillManager: 设置${skillId}位置`);
-            console.log(`  - 期望位置: (${position.x.toFixed(1)}, ${position.y.toFixed(1)})`);
-            console.log(`  - 实际世界位置: (${skillNode.worldPosition.x.toFixed(1)}, ${skillNode.worldPosition.y.toFixed(1)})`);
-            console.log(`  - 实际本地位置: (${skillNode.position.x.toFixed(1)}, ${skillNode.position.y.toFixed(1)})`);
-            console.log(`  - 父节点: ${parentNode.name}`);
-            
-            // 自动修复缺失的组件
-            ComponentFixer.fixMissingComponents(skillNode, `技能-${skillId}`);
-            
             // 🔧 启用物理分组系统：配置技能为玩家攻击分组，自动不与玩家碰撞
             PhysicsGroups.configurePlayerAttackPhysics(skillNode);
-            console.log(`🛡️ 已配置${skillId}的物理分组，将自动避免与玩家碰撞`);
         } catch (error) {
             console.error(`❌ SkillManager: 设置技能节点父节点或位置时发生错误 ${skillId}:`, error);
             this.safeDestroyNode(skillNode, `配置化技能-${skillId}`);
@@ -698,6 +705,9 @@ export class SkillManager extends Component {
         // 使用保存的绑定引用来取消事件订阅（修复内存泄漏）
         if (this.boundPlayerAttackHandler) {
             EventManager.off(GameEvents.PLAYER_ATTACK, this.boundPlayerAttackHandler);
+        }
+        if (this.boundAttackHitHandler) {
+            EventManager.off(GameEvents.ATTACK_HIT, this.boundAttackHitHandler);
         }
         
         // 安全清理所有活跃的技能节点

@@ -1,5 +1,5 @@
-import { _decorator, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, Vec3, Vec2, Node, instantiate, Sprite, Color, tween, UITransform, Graphics, Camera, director, Tween, SpriteFrame, resources, SpriteAtlas } from 'cc';
-import { Enemy } from '../Enemy';
+import { _decorator, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, Vec3, Vec2, Node, instantiate, Sprite, Color, tween, UITransform, Graphics, Camera, director, Tween, SpriteFrame, resources, SpriteAtlas, PhysicsSystem2D, EPhysics2DDrawFlags, CircleCollider2D } from 'cc';
+import { EnemyController } from '../EnemyController';
 import { BaseAttack, AimingMode, MovementMode } from './BaseAttack';
 import { AttackSystem } from './AttackSystem';
 
@@ -43,6 +43,8 @@ export class Fireball extends BaseAttack {
     private _fireballFrames: SpriteFrame[] = []; // 存储火球动画帧
     private _isPlayingExplosion: boolean = false; // 是否正在播放爆炸动画
     private _rotationDirection: number = 1; // 旋转方向：1或-1
+    private _animationLoaded: boolean = false; // 标记动画是否已加载完成
+    private _pendingExplosion: boolean = false; // 标记是否有待处理的爆炸
 
     protected getAttackName(): string {
         return "火球";
@@ -111,38 +113,62 @@ export class Fireball extends BaseAttack {
      * 初始化动画系统
      */
     private initializeAnimation() {
-        // 加载火球动画图集
-        resources.load("skill/fireball", SpriteAtlas, (err, atlas) => {
-            if (err) {
-                console.error("❌ 加载火球图集失败:", err);
-                this.initializeFallbackAnimation();
-                return;
-            }
-            
-            // 从图集中获取所有帧
-            this._fireballFrames = [];
-            
-            // 加载火球帧：fireball-explode0 到 fireball-explode3
-            for (let i = 0; i < 4; i++) {
-                const frameName = `fireball-explode${i}`;
-                const frame = atlas.getSpriteFrame(frameName);
-                if (frame) {
-                    this._fireballFrames.push(frame);
-                    console.log(`✅ 加载火球帧: ${frameName}`);
-                } else {
-                    console.warn(`⚠️ 未找到火球帧: ${frameName}`);
+        // 🚀 优先使用预加载的资源
+        const atlas = resources.get("skill/fireball", SpriteAtlas);
+        
+        if (atlas) {
+            console.log("✅ 使用预加载的火球图集");
+            this.loadFireballFramesFromAtlas(atlas);
+        } else {
+            console.log("🔄 预加载资源不可用，异步加载火球图集...");
+            // 回退到异步加载
+            resources.load("skill/fireball", SpriteAtlas, (err, atlas) => {
+                if (err) {
+                    console.error("❌ 加载火球图集失败:", err);
+                    this.initializeFallbackAnimation();
+                    return;
                 }
-            }
-            
-            if (this._fireballFrames.length >= 4) {
-                console.log("✅ 成功加载火球动画帧");
-                // 立即设置发射状态（第0帧用于发射状态）
-                this.setLaunchState();
+                this.loadFireballFramesFromAtlas(atlas);
+            });
+        }
+    }
+
+    /**
+     * 从图集加载火球动画帧
+     */
+    private loadFireballFramesFromAtlas(atlas: SpriteAtlas) {
+        // 从图集中获取所有帧
+        this._fireballFrames = [];
+        
+        // 加载火球帧：fireball-explode0 到 fireball-explode3
+        for (let i = 0; i < 4; i++) {
+            const frameName = `fireball-explode${i}`;
+            const frame = atlas.getSpriteFrame(frameName);
+            if (frame) {
+                this._fireballFrames.push(frame);
+                console.log(`✅ 加载火球帧: ${frameName}`);
             } else {
-                console.error(`❌ 火球帧数量不正确，期望4个，实际${this._fireballFrames.length}个`);
-                this.initializeFallbackAnimation();
+                console.warn(`⚠️ 未找到火球帧: ${frameName}`);
             }
-        });
+        }
+        
+        if (this._fireballFrames.length >= 4) {
+            console.log("✅ 成功加载火球动画帧");
+            this._animationLoaded = true;
+            
+            // 立即设置发射状态（第0帧用于发射状态）
+            this.setLaunchState();
+            
+            // 如果有待处理的爆炸，现在执行
+            if (this._pendingExplosion) {
+                this._pendingExplosion = false;
+                this.performExplosion();
+            }
+        } else {
+            console.error(`❌ 火球帧数量不正确，期望4个，实际${this._fireballFrames.length}个`);
+            this.initializeFallbackAnimation();
+            this._animationLoaded = true; // 即使是回退动画也标记为已加载
+        }
     }
 
     /**
@@ -258,31 +284,13 @@ export class Fireball extends BaseAttack {
     }
 
     onBeginContact(selfCollider: Collider2D, otherCollider: Collider2D, contact: IPhysics2DContact | null) {
+        // 防止重复触发
         if (this._hasExploded) {
             return;
         }
-        
-        console.log("💥 火球碰撞检测触发！");
-        console.log("  - 火球世界位置:", this.node.worldPosition);
-        console.log("  - 目标名称:", otherCollider.node.name);
-        
-        // 🔧 重要：检查是否撞到玩家，如果是则跳过
-        const isPlayer = otherCollider.node.name.toLowerCase().includes('player') || 
-                         otherCollider.node.parent?.name.toLowerCase().includes('player') ||
-                         otherCollider.node.getComponent('PlayerController');
-        
-        if (isPlayer) {
-            console.log("🛡️ 火球撞到玩家，跳过碰撞处理");
-            return;
-        }
-        
-        // 尝试从被碰撞的物体上获取Enemy脚本
-        const enemyScript = otherCollider.getComponent(Enemy);
 
-        if (enemyScript) {
-            console.log("🔥 火球直接击中敌人，准备爆炸");
-            this.explode();
-        }
+        // 只要撞到任何非玩家物体，就立即爆炸
+        this.explode();
     }
     
     private explode() {
@@ -292,47 +300,51 @@ export class Fireball extends BaseAttack {
         
         this._hasExploded = true;
         
-        // 记录当前的爆炸位置（碰撞位置）
+        // 记录爆炸发生的世界坐标
         this._explosionPosition.set(this.node.worldPosition);
-        
-        console.log("💥 火球爆炸！");
-        console.log("  - 爆炸世界位置:", this._explosionPosition);
-        console.log("  - 爆炸范围:", this.explosionRadius);
-        
-        // 停止移动
+        console.log(`💥 火球在 ${this._explosionPosition.toString()} 位置爆炸`);
+
+        // 停止火球移动 - 使用延迟禁用刚体避免物理引擎错误
         if (this._rigidbody) {
             this._rigidbody.linearVelocity = Vec2.ZERO;
-            // 延迟禁用物理组件，避免在碰撞监听器中禁用
+            // 使用scheduleOnce延迟禁用刚体，避免在碰撞监听器中直接禁用
             this.scheduleOnce(() => {
-                if (this._rigidbody && this._rigidbody.isValid) {
+                if (this._rigidbody) {
                     this._rigidbody.enabled = false;
                 }
-            }, 0.01);
+            }, 0);
         }
-        
-        if (this._collider) {
-            // 延迟禁用碰撞器，避免在碰撞监听器中禁用
-            this.scheduleOnce(() => {
-                if (this._collider && this._collider.isValid) {
-                    this._collider.enabled = false;
-                }
-            }, 0.01);
+
+        // 隐藏火球自身
+        if (this._sprite) {
+            this._sprite.enabled = false;
         }
-        
-        // 检测爆炸范围内的所有敌人
-        this.detectEnemiesInExplosion();
-        
-        // 开始爆炸视觉效果
+
+        // 检查动画是否已加载
+        if (this._animationLoaded) {
+            // 动画已加载，立即执行爆炸效果
+            this.performExplosion();
+        } else {
+            // 动画未加载，标记为待处理
+            console.log("🔄 动画未加载完成，延迟爆炸效果");
+            this._pendingExplosion = true;
+        }
+    }
+
+    /**
+     * 执行实际的爆炸效果（动画已加载时调用）
+     */
+    private performExplosion() {
+        // 播放爆炸效果 (视觉、音效、震屏等)
         this.playExplosionEffects();
-        
-        // 计算爆炸动画的实际持续时间
-        const explosionAnimationDuration = (this._fireballFrames.length - 1) / this.explosionFrameRate;
-        
-        // 延迟销毁，等待爆炸动画播放完毕
+
+        // 检测爆炸范围内的敌人并造成伤害
+        this.detectEnemiesInExplosion();
+
+        // 在爆炸效果播放完毕后销毁节点
         this.scheduleOnce(() => {
-            console.log("🗑️ 爆炸效果播放完毕，销毁火球");
             this.destroyAttack();
-        }, explosionAnimationDuration + 0.1); // 额外0.1秒确保动画完全结束
+        }, this.explosionDuration);
     }
 
     /**
@@ -533,28 +545,32 @@ export class Fireball extends BaseAttack {
     }
     
     private detectEnemiesInExplosion() {
-        console.log("💥 开始检测爆炸范围内的敌人");
-        
-        // 获取所有敌人节点
-        const enemies = this.getAllEnemies();
+        const activeEnemies = this.getAllEnemies();
         let hitCount = 0;
-        
-        for (const enemy of enemies) {
-            // 使用记录的爆炸位置计算距离
-            const distance = Vec3.distance(this._explosionPosition, enemy.node.worldPosition);
-            
+
+        activeEnemies.forEach(enemyNode => {
+            if (!enemyNode || !enemyNode.isValid) {
+                return;
+            }
+
+            const distance = Vec3.distance(this._explosionPosition, enemyNode.worldPosition);
+
             if (distance <= this.explosionRadius) {
-                console.log("💥 火球爆炸击中敌人:", enemy.node.name, "距离:", distance.toFixed(2));
-                
-                const damageSuccessful = this.dealDamageToEnemy(enemy, this.getAttackType());
-                if (damageSuccessful) {
-                    this.markEnemyAsHit(enemy.node);
-                    hitCount++;
+                const enemyScript = enemyNode.getComponent(EnemyController);
+                if (enemyScript && !this.isEnemyHit(enemyNode)) {
+                    console.log(`💥 火球爆炸击中敌人: ${enemyNode.name}`);
+                    const damageSuccessful = this.dealDamageToEnemy(enemyScript, this.getAttackType());
+                    if (damageSuccessful) {
+                        this.markEnemyAsHit(enemyNode);
+                        hitCount++;
+                    }
                 }
             }
+        });
+
+        if (hitCount > 0) {
+            console.log(`🔥 火球总共击中 ${hitCount} 个敌人`);
         }
-        
-        console.log("📊 火球爆炸攻击统计: 击中", hitCount, "个敌人");
     }
     
     public setTarget(position: Vec3) {

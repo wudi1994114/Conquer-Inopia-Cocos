@@ -803,41 +803,56 @@ export class PlayerController extends Component {
      * 初始化动画系统
      */
     private initializeAnimation() {
-        // 加载玩家动画图集
-        resources.load("player/player", SpriteAtlas, (err, atlas) => {
-            if (err) {
-                console.error("❌ 加载玩家图集失败:", err);
-                return;
-            }
-            
-            // 从图集中获取所有帧
-            this._playerFrames = [];
-            for (let i = 0; i < 12; i++) {
-                const frameNumber = i < 10 ? `0${i}` : `${i}`;
-                const frameName = `player${frameNumber}`;
-                const frame = atlas.getSpriteFrame(frameName);
-                if (frame) {
-                    this._playerFrames.push(frame);
-                    console.log(`✅ 加载动画帧: ${frameName}`);
-                } else {
-                    console.warn(`⚠️ 未找到动画帧: ${frameName}`);
+        // 🚀 优先使用预加载的资源
+        const atlas = resources.get("player/player", SpriteAtlas);
+        
+        if (atlas) {
+            console.log("✅ 使用预加载的玩家图集");
+            this.loadPlayerFramesFromAtlas(atlas);
+        } else {
+            console.log("🔄 预加载资源不可用，异步加载玩家图集...");
+            // 回退到异步加载
+            resources.load("player/player", SpriteAtlas, (err, atlas) => {
+                if (err) {
+                    console.error("❌ 加载玩家图集失败:", err);
+                    return;
                 }
-            }
-            
-            if (this._playerFrames.length === 12) {
-                console.log("✅ 成功加载12个玩家动画帧");
-                // 设置默认动画（下方向第一帧）
-                this.setDirection('down', false);
+                this.loadPlayerFramesFromAtlas(atlas);
+            });
+        }
+    }
+
+    /**
+     * 从图集加载玩家动画帧
+     */
+    private loadPlayerFramesFromAtlas(atlas: SpriteAtlas) {
+        // 从图集中获取所有帧
+        this._playerFrames = [];
+        for (let i = 0; i < 12; i++) {
+            const frameNumber = i < 10 ? `0${i}` : `${i}`;
+            const frameName = `player${frameNumber}`;
+            const frame = atlas.getSpriteFrame(frameName);
+            if (frame) {
+                this._playerFrames.push(frame);
+                console.log(`✅ 加载动画帧: ${frameName}`);
             } else {
-                console.error(`❌ 动画帧数量不正确，期望12个，实际${this._playerFrames.length}个`);
-                
-                // 如果加载失败，尝试使用当前的sprite frame
-                if (this._sprite && this._sprite.spriteFrame) {
-                    console.log("🔄 使用当前精灵帧作为默认帧");
-                    this._playerFrames = [this._sprite.spriteFrame];
-                }
+                console.warn(`⚠️ 未找到动画帧: ${frameName}`);
             }
-        });
+        }
+        
+        if (this._playerFrames.length === 12) {
+            console.log("✅ 成功加载12个玩家动画帧");
+            // 设置默认动画（下方向第一帧）
+            this.setDirection('down', false);
+        } else {
+            console.error(`❌ 动画帧数量不正确，期望12个，实际${this._playerFrames.length}个`);
+            
+            // 如果加载失败，尝试使用当前的sprite frame
+            if (this._sprite && this._sprite.spriteFrame) {
+                console.log("🔄 使用当前精灵帧作为默认帧");
+                this._playerFrames = [this._sprite.spriteFrame];
+            }
+        }
     }
 
     /**

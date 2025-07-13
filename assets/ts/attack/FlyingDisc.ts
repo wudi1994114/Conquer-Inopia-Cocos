@@ -1,5 +1,5 @@
 import { _decorator, Node, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D } from 'cc';
-import { Enemy } from '../Enemy';
+import { EnemyController } from '../EnemyController';
 import { BaseAttack } from './BaseAttack';
 import { AttackSystem } from './AttackSystem';
 
@@ -23,7 +23,7 @@ export class FlyingDisc extends BaseAttack {
     @property({tooltip: '攻击间隔（秒）'})
     public attackInterval: number = 0.5;
 
-    private _hitEnemiesTime: Map<Enemy, number> = new Map(); // 记录击中敌人和上次攻击时间
+    private _hitEnemiesTime: Map<Node, number> = new Map(); // 记录击中敌人节点和上次攻击时间
     private _currentAngle: number = 0; // 当前旋转角度
     private _collider: Collider2D | null = null;
 
@@ -160,11 +160,11 @@ export class FlyingDisc extends BaseAttack {
         const currentTime = Date.now() / 1000; // 转换为秒
         
         // 尝试从被碰撞的物体上获取Enemy脚本
-        const enemyScript = otherCollider.getComponent(Enemy);
+        const enemyScript = otherCollider.getComponent(EnemyController);
 
         if (enemyScript) {
             // 检查攻击间隔
-            const lastHitTime = this._hitEnemiesTime.get(enemyScript) || 0;
+            const lastHitTime = this._hitEnemiesTime.get(enemyScript.node) || 0;
             if (currentTime - lastHitTime < this.attackInterval) {
                 return; // 攻击间隔未到
             }
@@ -173,11 +173,10 @@ export class FlyingDisc extends BaseAttack {
             console.log("  - 当前角度:", this._currentAngle.toFixed(2));
             
             // 飞盘可以重复攻击同一个敌人，但需要新的版本号
-            const currentAttackVersion = AttackSystem.getNextAttackVersion(this.getAttackType());
-            const damageSuccessful = this.dealDamageToEnemy(enemyScript, this.getAttackType(), currentAttackVersion);
+            const damageSuccessful = this.dealDamageToEnemy(enemyScript, this.getAttackType());
             
             if (damageSuccessful) {
-                this._hitEnemiesTime.set(enemyScript, currentTime);
+                this._hitEnemiesTime.set(enemyScript.node, currentTime);
                 this.markEnemyAsHit(enemyScript.node);
                 console.log("📊 飞盘总击中次数:", this._hitEnemiesTime.size);
             }

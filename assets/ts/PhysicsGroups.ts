@@ -21,7 +21,7 @@ export class PhysicsGroups extends Component {
 
     // 分组名称映射（用于调试）
     public static readonly GroupNames = {
-        [PhysicsGroups.Groups.DEFAULT]: 'DEFAULT',
+        [PhysicsGroups.Groups.DEFAULT]: 'DEFAULT' ,
         [PhysicsGroups.Groups.PLAYER]: 'PLAYER', 
         [PhysicsGroups.Groups.PLAYER_ATTACK]: 'PLAYER_ATTACK',
         [PhysicsGroups.Groups.ENEMY]: 'ENEMY',
