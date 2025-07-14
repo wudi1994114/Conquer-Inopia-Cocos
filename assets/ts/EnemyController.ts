@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, RigidBody2D, Vec2, Collider2D, Sprite, Color, SpriteFrame, resources, SpriteAtlas, BoxCollider2D, tween, UIOpacity, Animation, view, Layers } from 'cc';
+import { _decorator, Component, Node, RigidBody2D, Vec2, Collider2D, Sprite, Color, SpriteFrame, resources, SpriteAtlas, BoxCollider2D, tween, UIOpacity, Animation, view, Layers, UITransform, Prefab, instantiate, director, Vec3 } from 'cc';
 import { GameManager } from './GameManager';
 import { AttackTypeValue } from './attack/AttackSystem';
 import { enemyDatabase, EnemyData } from './configs/enemy-config';
@@ -6,121 +6,231 @@ import { AutoAnimationCreator } from './AutoAnimationCreator';
 
 const { ccclass, property } = _decorator;
 
-// 动画状态枚举
+/**
+ * 动画状态枚举
+ * 定义敌人可能的动画状态
+ */
 enum AnimationState {
-    IDLE = 'Idle',
-    WALK = 'Walk',
-    ATTACK = 'Attack',
-    HURT = 'Hurt',
-    DEATH = 'Death'
+    IDLE = 'Idle',     // 待机状态
+    WALK = 'Walk',     // 行走状态
+    ATTACK = 'Attack', // 攻击状态
+    HURT = 'Hurt',     // 受伤状态
+    DEATH = 'Death',   // 死亡状态
+    FIRE = 'Fire'      // 🔥 火球技能状态
 }
 
-// 方向枚举
+/**
+ * 方向枚举
+ * 定义敌人面向的方向，用于选择对应的动画帧
+ */
 enum Direction {
-    FRONT = 'front',
-    BACK = 'back',
-    LEFT = 'left',
-    RIGHT = 'right'
+    FRONT = 'front', // 面向前方
+    BACK = 'back',   // 面向后方
+    LEFT = 'left',   // 面向左侧
+    RIGHT = 'right'  // 面向右侧
 }
 
+/**
+ * 敌人控制器组件
+ * 管理敌人的行为、动画、战斗等所有逻辑
+ */
 @ccclass('EnemyController')
 export class EnemyController extends Component {
-
-    // --- 公共引用 ---
-    public playerNode: Node | null = null; 
-    public gameManager: GameManager | null = null;
     
-    // --- 数据与状态 ---
-    private data: EnemyData | null = null; // 当前敌人的配置数据
+    /**
+     * 玩家节点引用 - 用于AI寻路和攻击目标判定
+     */
+    @property({ type: Node, tooltip: '玩家节点引用，用于AI寻路' })
+    public playerNode: Node | null = null; 
+    
+    @property({ type: GameManager, tooltip: '游戏管理器引用' })
+    public gameManager: GameManager | null = null;
+
+    // ======================== 敌人基本属性 ========================
+    
+    /**
+     * 敌人配置数据 - 包含血量、攻击力、速度等属性
+     */
+    private data: EnemyData | null = null;
+    
     private _currentHealth: number = 0;
+    
     private _isStunned: boolean = false;
+    
     private _isDead: boolean = false;
+    
     private _isAttacking: boolean = false;
+    
+    private _isHurt: boolean = false;
+    
     private _lastAttackTime: number = 0;
+    
     private _currentAnimationState: AnimationState = AnimationState.IDLE;
+    
     private _currentDirection: Direction = Direction.FRONT;
+    
     private _lastAttackVersions: Map<string, number> = new Map();
 
-    // --- 速度控制 ---
-    private _speedModifiers: Map<string, number> = new Map(); // key: modifierId, value: ratio
+    // ======================== 技能系统 ========================
+    
+    /**
+     * 技能冷却记录 - 记录每个技能的上次使用时间
+     */
+    private _skillCooldowns: Map<string, number> = new Map();
+    
+    /**
+     * 是否正在使用技能
+     */
+    private _isUsingSkill: boolean = false;
+
+    // ======================== 移动和速度系统 ========================
+    
+    /**
+     * 速度修饰符系统 - 允许技能临时改变敌人速度
+     */
+    private _speedModifiers: Map<string, number> = new Map();
+    
     private _currentSpeed: number = 0;
 
-    // --- 组件引用 ---
+    // ======================== 状态变化检测 ========================
+    
+    /**
+     * 上一帧的状态 - 用于检测状态变化，避免重复设置动画
+     */
+    private _lastFrameState: AnimationState = AnimationState.IDLE;
+    
+    /**
+     * 上一帧的方向 - 用于检测方向变化
+     */
+    private _lastFrameDirection: Direction = Direction.FRONT;
+
+    // ======================== 组件引用 ========================
+    
+    /**
+     * 物理刚体组件 - 控制敌人移动
+     */
     private _rigidbody: RigidBody2D | null = null;
+    
     private _collider: BoxCollider2D | null = null;
+    
     private _sprite: Sprite | null = null;
     
-    // --- 颜色与动画 ---
-    private _originalColor: Color = new Color();
-    private _enemyFrames: Map<string, SpriteFrame[]> = new Map();
-    private _currentFrameIndex: number = 0;
-    private _animationTimer: number = 0;
-    private _animation: Animation | null = null;
-    private _useAutoAnimation: boolean = false;
-    
-    // --- 调试与状态跟踪 ---
-    private _hasLoggedPlayerRef: boolean = false;
-    private _isInDetectionRange: boolean = false; // 🔧 添加检测范围状态追踪
-    private _debugTimer: number = 0; // 🔧 添加调试定时器
+    private _uiTransform: UITransform | null = null;
 
+    // ======================== 视觉效果系统 ========================
+    
+    /**
+     * 原始颜色 - 用于受伤闪烁效果后的还原
+     */
+    private _originalColor: Color = new Color();
+    
+    private _animation: Animation | null = null;
+
+    // ======================== 调试和优化相关 ========================
+    
+    /**
+     * 调试标志 - 避免重复输出日志
+     */
+    private _hasLoggedPlayerRef: boolean = false;
+    
+    private _isInDetectionRange: boolean = false;
+    
+    private _debugTimer: number = 0;
+
+    /**
+     * 组件初始化
+     * 获取必要的组件引用并进行基础设置
+     */
     onLoad() {
+        // 获取组件引用
         this._rigidbody = this.getComponent(RigidBody2D);
         this._collider = this.getComponent(BoxCollider2D);
         this._sprite = this.getComponent(Sprite);
-        this._animation = this.getComponent(Animation);
-
+        this._uiTransform = this.getComponent(UITransform);
+        
         if (this._sprite) {
-            this._originalColor.set(this._sprite.color);
-            
-            // 🔧 修复：确保精灵颜色为正常的白色
-            if (this._sprite.color.r === 255 && this._sprite.color.g === 255 && this._sprite.color.b === 0) {
-                console.log('🔧 修复异常的黄色精灵，设置为白色');
-                this._sprite.color = new Color(255, 255, 255, 255);
-                this._originalColor.set(this._sprite.color);
-            }
+            this._originalColor = this._sprite.color.clone();
         }
+        
+        if (!this._rigidbody) {
+            console.error('❌ EnemyController: 缺少 RigidBody2D 组件');
+        }
+        
+        if (!this._collider) {
+            console.error('❌ EnemyController: 缺少 BoxCollider2D 组件');
+        }
+        
+        if (!this._sprite) {
+            console.error('❌ EnemyController: 缺少 Sprite 组件');
+        }
+        
+        if (!this._uiTransform) {
+            console.error('❌ EnemyController: 缺少 UITransform 组件');
+        }
+        
+        console.log('🎭 EnemyController 初始化完成');
     }
 
     /**
      * 初始化敌人
-     * @param enemyId 要生成的敌人的ID, 来自 enemy-config.ts
+     * 根据敌人ID从配置数据库加载敌人数据，设置属性并开始资源加载
+     * @param enemyId 要生成的敌人的ID，来自 enemy-config.ts
      */
     public init(enemyId: string) {
+        console.log(`🎭 初始化敌人: ${enemyId}`);
+        
+        // 从数据库获取敌人配置
         this.data = enemyDatabase[enemyId];
         if (!this.data) {
-            console.error(`❌ Enemy Error: 在怪物数据库中未找到ID为 '${enemyId}' 的配置!`);
-            this.node.destroy();
+            console.error(`❌ 找不到敌人数据: ${enemyId}`);
             return;
         }
-
-        console.log(`✅ 初始化敌人: ${this.data.name} (ID: ${this.data.id})`);
-
-        // --- 根据数据设置属性 ---
-        this.node.name = this.data.name;
-        this.node.setScale(this.data.nodeScale, this.data.nodeScale, 1);
+        
+        // 初始化敌人属性
         this._currentHealth = this.data.baseHealth;
         this._currentSpeed = this.data.moveSpeed;
-        // console.log(`🚀 ${this.data.name} 初始化: 移动速度=${this._currentSpeed}, 检测范围=${this.data.detectionRange}, 攻击范围=${this.data.attackRange}`); 
-
-        // --- 设置物理属性 ---
+        this._isDead = false;
+        this._isStunned = false;
+        this._isAttacking = false;
+        this._isHurt = false;
+        
+        // 设置节点属性
+        this.node.name = this.data.name;
+        this.node.setScale(this.data.nodeScale, this.data.nodeScale, 1);
+        
+        // 设置物理属性
         if (this._rigidbody) {
             this._rigidbody.enabled = true;
             this._rigidbody.gravityScale = 0;
             this._rigidbody.fixedRotation = true;
         }
         
-        // 显式地进行空值检查
         if (this._collider) {
             this._collider.enabled = true;
             this._collider.sensor = false;
             this._collider.size.set(this.data.colliderSize.width, this.data.colliderSize.height);
             this._collider.apply();
         }
-
-        // --- 异步加载动画资源 ---
+        
+        // 初始化动画状态
+        this._currentAnimationState = AnimationState.IDLE;
+        this._currentDirection = Direction.FRONT;
+        this._lastFrameState = AnimationState.IDLE;
+        this._lastFrameDirection = Direction.FRONT;
+        
+        // 重新计算速度
+        this.recalculateSpeed();
+        
+        // 加载动画资源
         this.loadAnimationAssets();
+        
+        console.log(`✅ 敌人初始化完成: ${this.data.name} (生命值: ${this._currentHealth}/${this.data.baseHealth})`);
     }
 
+    /**
+     * 加载动画资源
+     * 异步加载敌人的图集资源并创建动画
+     */
     private loadAnimationAssets() {
         if (!this.data) {
             console.error('❌ EnemyController: 无法加载动画资源，数据为空');
@@ -169,77 +279,13 @@ export class EnemyController extends Component {
 
         console.log(`✅ 成功加载图集: ${this.data.plistUrl}`);
         
-        // 🔧 立即检查图集内容
-        const spriteFrames = atlas.getSpriteFrames();
-        console.log(`📋 图集包含 ${spriteFrames.length} 个精灵帧:`);
-        spriteFrames.slice(0, 5).forEach((frame, index) => {
-            if (frame) {
-                console.log(`  - [${index}] ${frame.name}`);
-            }
-        });
-        if (spriteFrames.length > 5) {
-            console.log(`  - ... 还有 ${spriteFrames.length - 5} 个帧`);
-        }
-        
-        // 尝试使用自动动画创建器
+        // 使用自动动画创建器
         try {
-            const clips = AutoAnimationCreator.createEnemyAnimations(atlas, this.data.assetNamePrefix, this.node);
+            const clips = AutoAnimationCreator.createEnemyAnimations(atlas, this.data.assetNamePrefix, this.node, this.data.attackInterval);
             if (clips.length > 0) {
-                this._useAutoAnimation = true;
                 // 重新获取 Animation 组件（因为可能是刚刚添加的）
                 this._animation = this.getComponent(Animation);
                 console.log(`✅ 使用自动动画创建器成功创建 ${clips.length} 个动画`);
-                
-                // 🔧 再次检查精灵状态
-                if (this._sprite) {
-                    console.log(`🔍 动画创建后精灵状态:`);
-                    console.log(`  - 精灵帧: ${this._sprite.spriteFrame ? '存在' : 'null'}`);
-                    if (this._sprite.spriteFrame) {
-                        console.log(`  - 精灵帧名称: ${this._sprite.spriteFrame.name}`);
-                    }
-                    
-                    // 🔧 强制可见性检查
-                    console.log(`  - 精灵激活: ${this._sprite.enabled}`);
-                    console.log(`  - 精灵颜色: (${this._sprite.color.r}, ${this._sprite.color.g}, ${this._sprite.color.b}, ${this._sprite.color.a})`);
-                    console.log(`  - 节点激活: ${this.node.active}`);
-                    console.log(`  - 节点位置: (${this.node.position.x.toFixed(1)}, ${this.node.position.y.toFixed(1)})`);
-                    
-                    // 🔧 确保敌人完全可见
-                    if (!this._sprite.enabled) {
-                        this._sprite.enabled = true;
-                        console.log('🔧 强制启用精灵组件');
-                    }
-                    
-                    if (!this.node.active) {
-                        this.node.active = true;
-                        console.log('🔧 强制启用敌人节点');
-                    }
-                    
-                    // 🔧 检查渲染层级和父节点
-                    console.log(`🔍 渲染层级调试:`);
-                    console.log(`  - 节点层级: ${this.node.layer}`);
-                    console.log(`  - 父节点: ${this.node.parent ? this.node.parent.name : 'null'}`);
-                    console.log(`  - 世界变换: ${this.node.worldMatrix}`);
-                    console.log(`  - 精灵材质: ${this._sprite.material ? this._sprite.material.name : 'null'}`);
-                    console.log(`  - 精灵着色器: ${this._sprite.material ? this._sprite.material.effectName : 'null'}`);
-                    
-                    // 🔧 强制设置渲染层级
-                    // 🔧 注意：不再硬编码DEFAULT层，而是保持当前层级
-                    // 层级应该由GameManager在生成时正确设置
-                    console.log(`🔍 当前敌人层级: ${this.node.layer}`);
-                    
-                    // 🔧 强制视觉测试：让敌人变大并改变颜色
-                    const testMode = true;
-                    if (testMode) {
-                        // 放大敌人
-                        this.node.setScale(2.0, 2.0, 1.0);
-                        console.log('🧪 测试模式：敌人放大到2倍');
-                        
-                        // 改变颜色为红色，确保可见
-                        this._sprite.color = new Color(255, 0, 0, 255);
-                        console.log('🧪 测试模式：敌人颜色改为红色');
-                    }
-                }
                 
                 // 播放默认动画
                 if (this._animation) {
@@ -248,107 +294,26 @@ export class EnemyController extends Component {
                 return;
             }
         } catch (error) {
-            console.warn('⚠️ 自动动画创建器失败，回退到手动模式:', error);
+            console.error('❌ 自动动画创建器失败:', error);
         }
         
-        // 回退到原有的手动模式
-        this._useAutoAnimation = false;
-        
-        // 手动提取动画帧
-        const animationStates = [AnimationState.IDLE, AnimationState.WALK, AnimationState.ATTACK, AnimationState.HURT, AnimationState.DEATH];
-        const directions = [Direction.FRONT, Direction.BACK, Direction.LEFT, Direction.RIGHT];
-        
-        for (const state of animationStates) {
-            for (const direction of directions) {
-                const frames = this.extractAnimationFrames(atlas, this.data.assetNamePrefix, state, direction);
-                if (frames.length > 0) {
-                    const key = `${state}_${direction}`;
-                    this._enemyFrames.set(key, frames);
-                    console.log(`✅ 提取动画帧: ${key} (${frames.length} 帧)`);
-                }
-            }
-        }
-        
-        // 设置初始精灵帧
-        const idleFrontFrames = this._enemyFrames.get('Idle_front');
-        if (idleFrontFrames && idleFrontFrames.length > 0 && this._sprite) {
-            this._sprite.spriteFrame = idleFrontFrames[0];
-            console.log(`✅ 设置初始精灵帧: ${idleFrontFrames[0].name}`);
-        }
-        
-        // 确保敌人在屏幕中央可见
-        this.node.setPosition(100, 100, 0);
-        
-        // 🔧 检查敌人是否在摄像机视野内
-        const cameraSize = view.getVisibleSize();
-        const enemyPos = this.node.position;
-        const inView = Math.abs(enemyPos.x) < cameraSize.width / 2 && Math.abs(enemyPos.y) < cameraSize.height / 2;
-        console.log(`🔍 敌人位置: (${enemyPos.x.toFixed(1)}, ${enemyPos.y.toFixed(1)})`);
-        console.log(`🔍 摄像机视野: ${cameraSize.width.toFixed(1)}x${cameraSize.height.toFixed(1)}`);
-        console.log(`🔍 敌人是否在视野内: ${inView ? '是' : '否'}`);
-        
-        // 🔧 强制修正位置到视野内
-        if (!inView) {
-            const newX = Math.random() * 200 - 100; // -100 到 100 之间
-            const newY = Math.random() * 200 - 100; // -100 到 100 之间
-            this.node.setPosition(newX, newY, 0);
-            console.log(`🔧 修正敌人位置到视野内: (${newX.toFixed(1)}, ${newY.toFixed(1)})`);
-        }
+        console.error('❌ 无法创建动画，敌人将无法正常显示');
     }
+
+
 
     /**
-     * 从图集中提取特定动画的所有帧
+     * 每帧更新 - 敌人AI的核心逻辑
+     * 处理敌人的AI行为、动画更新、状态管理等
+     * @param deltaTime 帧间隔时间
      */
-    private extractAnimationFrames(atlas: SpriteAtlas, prefix: string, state: AnimationState, direction: Direction): SpriteFrame[] {
-        const frames: SpriteFrame[] = [];
-        let i = 0;
-        while (true) {
-            const frameNumber = i < 10 ? `0${i}` : `${i}`;
-            const frameName = `${prefix}_${state}_${direction}${frameNumber}`;
-            const frame = atlas.getSpriteFrame(frameName);
-            if (frame) {
-                frames.push(frame);
-                i++;
-            } else {
-                // 如果第0帧都找不到，可能这个方向/状态的动画不存在
-                if (i === 0) { 
-                    // console.warn(`⚠️ 未找到动画序列的起始帧: ${frameName}`);
-                }
-                break;
-            }
-        }
-        return frames;
-    }
-
-    /**
-     * 智能获取图集中的资源前缀 (例如 'Ent1', 'Lich2' 等)
-     */
-    /*
-    private getAssetNamePrefix(atlas: SpriteAtlas): string {
-        if (!this.data) return ''; // 安全检查
-
-        const firstFrameName = atlas.getSpriteFrames()[0]?.name;
-        if (firstFrameName) {
-            const match = firstFrameName.match(/^([a-zA-Z0-9]+)_/);
-            if (match && match[1]) {
-                return match[1];
-            }
-        }
-        console.warn('⚠️ 无法从图集中智能推断资源前缀, 将使用一个默认值。请检查图集内命名是否规范 (如 Ent1_Idle_front00)');
-        // 如果无法推断，可以返回一个基于plistUrl的猜测值
-        const parts = this.data.plistUrl.split('/');
-        return parts[parts.length - 1];
-    }
-    */
-
-
     update(deltaTime: number) {
-        // 检查基础条件
+        // 检查基础条件：必须有有效的玩家引用和敌人数据
         if (!this.playerNode || !this.playerNode.isValid || !this.data) {
             return;
         }
 
-        // 计算与玩家的距离
+        // 计算与玩家的距离（用于AI决策）
         const playerPos = this.playerNode.worldPosition;
         const enemyPos = this.node.worldPosition;
         const distance = Math.sqrt(
@@ -368,36 +333,46 @@ export class EnemyController extends Component {
             this._hasLoggedPlayerRef = true;
         }
 
-        // AI行为逻辑
-        if (distance <= this.data.detectionRange) {
-            // 🔧 添加进入检测范围的日志
-            if (!this._isInDetectionRange) {
-                console.log(`👁️ ${this.data.name} 发现玩家！距离: ${distance.toFixed(1)} <= 检测范围: ${this.data.detectionRange}`);
-                this._isInDetectionRange = true;
-            }
-            
-            if (distance <= this.data.attackRange) {
-                this.setState(AnimationState.ATTACK);
-                this.facePlayer();
-                this.performAttack();
-            } else {
+        // AI行为逻辑 - 只有在未被眩晕、未受伤且未死亡时才执行
+        if (!this._isStunned && !this._isHurt && !this._isDead) {
+            if (distance <= this.data.detectionRange) {
+                // 🔧 添加进入检测范围的日志
+                if (!this._isInDetectionRange) {
+                    console.log(`👁️ ${this.data.name} 发现玩家！距离: ${distance.toFixed(1)} <= 检测范围: ${this.data.detectionRange}`);
+                    this._isInDetectionRange = true;
+                }
+                
+                if (distance <= this.data.attackRange && !this._isAttacking && !this._isUsingSkill) {
+                    // 🔥 智能选择攻击方式：技能 > 普通攻击
+                    if (this.shouldUseSkill(distance)) {
+                        this.setState(AnimationState.FIRE);
+                        this.facePlayer();
+                        this.performSkillAttack('fireball');
+                    } else {
+                        this.setState(AnimationState.ATTACK);
+                        this.facePlayer();
+                        this.performAttack();
+                    }
+                } else if (!this._isAttacking && !this._isUsingSkill) {
+                    // 只有在不攻击且不使用技能时才移动
+                    this.setState(AnimationState.WALK);
+                    this.facePlayer();
+                    this.moveTowardsPlayer(deltaTime);
+                }
+            } else if (distance <= this.data.pursuitRange && this._isInDetectionRange && !this._isAttacking && !this._isUsingSkill) {
+                // 在追击范围内，继续追击，但攻击或使用技能时不移动
                 this.setState(AnimationState.WALK);
                 this.facePlayer();
                 this.moveTowardsPlayer(deltaTime);
+            } else if (!this._isAttacking && !this._isUsingSkill) {
+                // 🔧 添加离开检测范围的日志
+                if (this._isInDetectionRange) {
+                    console.log(`👁️ ${this.data.name} 失去玩家目标！距离: ${distance.toFixed(1)} > 检测范围: ${this.data.detectionRange}`);
+                    this._isInDetectionRange = false;
+                }
+                
+                this.setState(AnimationState.IDLE);
             }
-        } else if (distance <= this.data.pursuitRange && this._isInDetectionRange) {
-            // 在追击范围内，继续追击
-            this.setState(AnimationState.WALK);
-            this.facePlayer();
-            this.moveTowardsPlayer(deltaTime);
-        } else {
-            // 🔧 添加离开检测范围的日志
-            if (this._isInDetectionRange) {
-                console.log(`👁️ ${this.data.name} 失去玩家目标！距离: ${distance.toFixed(1)} > 检测范围: ${this.data.detectionRange}`);
-                this._isInDetectionRange = false;
-            }
-            
-            this.setState(AnimationState.IDLE);
         }
 
         // 调试信息（定期输出，避免日志过多）
@@ -415,12 +390,32 @@ export class EnemyController extends Component {
         }
     }
 
-    // 🔧 添加缺失的方法定义
+    /**
+     * 设置敌人状态
+     * 智能检测状态和方向变化，只在真正改变时才更新动画
+     * @param state 新的动画状态
+     */
     private setState(state: AnimationState) {
-        this._currentAnimationState = state;
-        this.tryPlayAnimation(state);
+        // 检查状态或方向是否真的改变了
+        const stateChanged = this._lastFrameState !== state;
+        const directionChanged = this._lastFrameDirection !== this._currentDirection;
+        
+        // 只有在状态或方向改变时才播放动画
+        if (stateChanged || directionChanged) {
+            console.log(`🎭 ${this.node.name} 动画状态改变: ${this._lastFrameState} -> ${state}, 方向: ${this._lastFrameDirection} -> ${this._currentDirection}`);
+            
+            this._currentAnimationState = state;
+            this._lastFrameState = state;
+            this._lastFrameDirection = this._currentDirection;
+            
+            this.tryPlayAnimation(state);
+        }
     }
 
+    /**
+     * 面向玩家
+     * 根据玩家位置计算敌人应该面向的方向
+     */
     private facePlayer() {
         if (!this.playerNode || !this.playerNode.isValid) return;
         
@@ -430,6 +425,11 @@ export class EnemyController extends Component {
         this._currentDirection = this.getDirectionFromVector(direction);
     }
 
+    /**
+     * 向玩家移动
+     * 计算朝向玩家的方向并应用移动速度
+     * @param deltaTime 帧间隔时间（未使用，但保持接口一致性）
+     */
     private moveTowardsPlayer(deltaTime: number) {
         if (!this.playerNode || !this.playerNode.isValid || !this._rigidbody) return;
         
@@ -490,171 +490,435 @@ export class EnemyController extends Component {
         }
     }
 
+    /**
+     * 尝试播放动画（带优先级控制）
+     * 实现动画优先级系统：受伤 > 死亡 > 技能 > 攻击 > 其他
+     * @param state 要播放的动画状态
+     */
     private tryPlayAnimation(state: AnimationState) {
-        if (this._currentAnimationState !== state && this._currentAnimationState !== AnimationState.HURT && this._currentAnimationState !== AnimationState.ATTACK) {
+        // 受伤动画具有最高优先级，可以打断任何动画
+        if (state === AnimationState.HURT) {
+            this.playAnimation(state, this._currentDirection);
+            return;
+        }
+        
+        // 死亡动画也具有高优先级，可以打断除受伤外的任何动画
+        if (state === AnimationState.DEATH) {
+            this.playAnimation(state, this._currentDirection);
+            return;
+        }
+        
+        // 🔥 技能动画具有高优先级，可以打断除受伤、死亡外的任何动画
+        if (state === AnimationState.FIRE) {
+            this.playAnimation(state, this._currentDirection);
+            return;
+        }
+        
+        // 其他动画：只有在不处于受伤、死亡、技能或攻击状态时才能播放
+        if (this._currentAnimationState !== AnimationState.HURT && 
+            this._currentAnimationState !== AnimationState.DEATH &&
+            this._currentAnimationState !== AnimationState.FIRE &&
+            this._currentAnimationState !== AnimationState.ATTACK) {
             this.playAnimation(state, this._currentDirection);
         }
     }
 
+    /**
+     * 播放指定的动画
+     * 使用自动动画系统和事件监听
+     * @param state 动画状态
+     * @param direction 面向方向
+     */
     private playAnimation(state: AnimationState, direction: Direction) {
-        // 如果使用自动动画系统
-        if (this._useAutoAnimation && this._animation) {
-            const animationName = `${state}_${direction}`;
+        if (!this._animation) {
+            console.warn(`⚠️ 动画组件未初始化`);
+            return;
+        }
+        
+        const animationName = `${state}_${direction}`;
+        
+        // 设置状态标志
+        if (state === AnimationState.HURT) {
+            this._isHurt = true;
+        } else if (state === AnimationState.ATTACK) {
+            this._isAttacking = true;
+        } else if (state === AnimationState.FIRE) {
+            this._isUsingSkill = true;
+        }
+        
+        // 尝试播放指定动画
+        if (AutoAnimationCreator.hasAnimation(this.node, animationName)) {
+            AutoAnimationCreator.playAnimation(this.node, animationName);
+            this._currentAnimationState = state;
+            this._currentDirection = direction;
             
-            // 尝试播放指定动画
-            if (AutoAnimationCreator.hasAnimation(this.node, animationName)) {
-                AutoAnimationCreator.playAnimation(this.node, animationName);
-                this._currentAnimationState = state;
-                this._currentDirection = direction;
-                return;
-            }
-            
-            // 回退到front方向
-            const fallbackName = `${state}_${Direction.FRONT}`;
-            if (AutoAnimationCreator.hasAnimation(this.node, fallbackName)) {
-                console.log(`🔄 动画回退: ${animationName} -> ${fallbackName}`);
-                AutoAnimationCreator.playAnimation(this.node, fallbackName);
-                this._currentAnimationState = state;
-                return;
-            }
-            
-            // 最后回退到Idle_front
-            if (state === AnimationState.HURT) {
-                const idleName = `${AnimationState.IDLE}_${Direction.FRONT}`;
-                if (AutoAnimationCreator.hasAnimation(this.node, idleName)) {
-                    console.log(`🔄 受伤动画缺失，使用 idle 动画作为回退: ${animationName}`);
-                    AutoAnimationCreator.playAnimation(this.node, idleName);
-                    this._currentAnimationState = AnimationState.IDLE;
-                    return;
-                }
-            }
-
-            console.warn(`⚠️ 动画缺失: ${animationName} 且无默认方向可播放`);
-            // 作为最后的回退，至少确保精灵帧存在
-            if (this._sprite && this._enemyFrames.size > 0) {
-                const firstAvailableFrames = Array.from(this._enemyFrames.values())[0];
-                if (firstAvailableFrames && firstAvailableFrames.length > 0) {
-                    this._sprite.spriteFrame = firstAvailableFrames[0];
-                }
+            // 如果是单次播放的动画，则添加结束监听器
+            if (state === AnimationState.ATTACK || state === AnimationState.HURT || state === AnimationState.DEATH || state === AnimationState.FIRE) {
+                this.setupAnimationEndListener(state);
             }
             return;
         }
         
-        // 原有的手动模式
-        const animationKey = `${state}_${direction}`;
-        const frames = this._enemyFrames.get(animationKey);
-
-        if (!frames || frames.length === 0) {
-            // 如果特定方向的动画不存在, 尝试播放默认的 'front' 方向
-            const fallbackKey = `${state}_${Direction.FRONT}`;
-            const fallbackFrames = this._enemyFrames.get(fallbackKey);
-            if (fallbackFrames && fallbackFrames.length > 0) {
-                this.startAnimation(fallbackFrames, state);
-                return;
+        // 回退到front方向
+        const fallbackName = `${state}_${Direction.FRONT}`;
+        if (AutoAnimationCreator.hasAnimation(this.node, fallbackName)) {
+            console.log(`🔄 动画回退: ${animationName} -> ${fallbackName}`);
+            AutoAnimationCreator.playAnimation(this.node, fallbackName);
+            this._currentAnimationState = state;
+            
+            // 如果是单次播放的动画，则添加结束监听器
+            if (state === AnimationState.ATTACK || state === AnimationState.HURT || state === AnimationState.DEATH || state === AnimationState.FIRE) {
+                this.setupAnimationEndListener(state);
             }
-
-            // 如果受伤动画不存在，尝试播放 idle 动画作为最后的回退
-            if (state === AnimationState.HURT) {
-                const idleFrames = this._enemyFrames.get(`${AnimationState.IDLE}_${Direction.FRONT}`);
-                if (idleFrames && idleFrames.length > 0) {
-                    console.log(`🔄 受伤动画缺失，使用 idle 动画作为回退: ${animationKey}`);
-                    this.startAnimation(idleFrames, AnimationState.IDLE);
-                    return;
-                }
-            }
-
-            console.warn(`⚠️ 动画缺失: ${animationKey} 且无默认方向可播放`);
-            return;
-        }
-
-        this.startAnimation(frames, state);
-    }
-    
-    private startAnimation(frames: SpriteFrame[], state: AnimationState) {
-        this._currentAnimationState = state;
-        this._currentFrameIndex = 0;
-        this._animationTimer = 0;
-        if (this._sprite) {
-            this._sprite.spriteFrame = frames[0];
-        }
-    }
-
-    private updateAnimation(deltaTime: number) {
-        // 如果使用自动动画系统，跳过手动更新
-        if (this._useAutoAnimation) {
             return;
         }
         
-        if (!this.data) return; // 安全检查
-
-        const animationKey = `${this._currentAnimationState}_${this._currentDirection}`;
-        const frames = this._enemyFrames.get(animationKey) || this._enemyFrames.get(`${this._currentAnimationState}_${Direction.FRONT}`);
-
-        if (!frames || frames.length === 0) {
-            return;
+        // 最后回退到Idle_front
+        if (state === AnimationState.HURT) {
+            const idleName = `${AnimationState.IDLE}_${Direction.FRONT}`;
+            if (AutoAnimationCreator.hasAnimation(this.node, idleName)) {
+                console.log(`🔄 受伤动画缺失，使用 idle 动画作为回退: ${animationName}`);
+                AutoAnimationCreator.playAnimation(this.node, idleName);
+                this._currentAnimationState = AnimationState.IDLE;
+                // 立即重置受伤状态，因为没有播放真正的受伤动画
+                this._isHurt = false;
+                return;
+            }
         }
 
-        this._animationTimer += deltaTime;
-        const frameDuration = 1 / this.data.animationSpeed;
+        console.warn(`⚠️ 动画缺失: ${animationName} 且无默认方向可播放`);
+    }
 
-        if (this._animationTimer >= frameDuration) {
-            this._animationTimer -= frameDuration;
-            this._currentFrameIndex = (this._currentFrameIndex + 1);
+    /**
+     * 动画播放完成时的统一回调
+     */
+    private onAnimationFinished() {
+        console.log(`🎭 动画播放完成: ${this._currentAnimationState}`);
+        
+        switch (this._currentAnimationState) {
+            case AnimationState.ATTACK:
+                this._isAttacking = false;
+                // 攻击动画结束后，通常会回到待机状态
+                this.setState(AnimationState.IDLE);
+                break;
+                
+            case AnimationState.HURT:
+                this._isHurt = false;
+                // 受伤动画结束后，也回到待机状态
+                this.setState(AnimationState.IDLE);
+                break;
 
-            // 动画播放完毕
-            if (this._currentFrameIndex >= frames.length) {
-                if (this._currentAnimationState === AnimationState.ATTACK || this._currentAnimationState === AnimationState.HURT) {
-                    this.playAnimation(AnimationState.IDLE, this._currentDirection);
-                } else {
-                    this._currentFrameIndex = 0; // 循环播放
-                }
-            }
-            
-            if (this._sprite && this._currentFrameIndex < frames.length) {
-                this._sprite.spriteFrame = frames[this._currentFrameIndex];
-            }
+            case AnimationState.FIRE:
+                this._isUsingSkill = false;
+                console.log(`🔥 ${this.data?.name} 火球技能动画完成，重置技能状态`);
+                // 技能动画结束后，回到待机状态
+                this.setState(AnimationState.IDLE);
+                break;
+
+            case AnimationState.DEATH:
+                // 死亡动画播放完毕后，执行渐隐和销毁
+                this.fadeOutAndDestroy();
+                break;
         }
     }
 
+    /**
+     * 渐隐并销毁敌人
+     */
+    private fadeOutAndDestroy() {
+        let uiOpacity = this.getComponent(UIOpacity);
+        if (!uiOpacity) {
+            uiOpacity = this.node.addComponent(UIOpacity);
+        }
+
+        tween(uiOpacity)
+            .to(0.3, { opacity: 0 }) // 渐隐时间
+            .call(() => {
+                // 通知游戏管理器敌人被击杀
+                if (this.gameManager && this.data) {
+                    // this.gameManager.onEnemyKilled(this.data);
+                }
+                this.node.destroy();
+            })
+            .start();
+    }
+
+    /**
+     * 设置动画结束监听器
+     * 使用Animation组件的事件系统
+     * @param state 当前播放的动画状态
+     */
+    private setupAnimationEndListener(state: AnimationState) {
+        if (!this._animation || !this.data) return;
+        
+        // 获取当前播放的动画剪辑状态
+        const animationName = `${state}_${this._currentDirection}`;
+        let animationState = this._animation.getState(animationName);
+        
+        if (!animationState) {
+            // 尝试使用front方向作为回退
+            animationState = this._animation.getState(`${state}_front`);
+        }
+        
+        if (animationState) {
+            // 先移除旧的监听器，避免重复注册
+            animationState.off('finished', this.onAnimationFinished, this);
+            // 注册动画结束事件监听
+            animationState.on('finished', this.onAnimationFinished, this);
+        } else {
+            // 如果无法获取动画状态，使用延时回调作为备用方案
+            const defaultDuration = state === AnimationState.HURT ? 0.5 : 
+                                   state === AnimationState.ATTACK ? 1.0 : 1.0;
+            
+            this.scheduleOnce(() => {
+                this.onAnimationFinished();
+            }, defaultDuration);
+        }
+    }
+
+
+
+    /**
+     * 执行攻击
+     * 播放攻击动画，动画结束后会自动重置状态
+     */
     private performAttack() {
         if (!this.data) return;
+        
         this._isAttacking = true;
         this._lastAttackTime = Date.now() / 1000;
+        
+        // 停止移动
         if (this._rigidbody) {
             this._rigidbody.linearVelocity = Vec2.ZERO;
         }
 
+        // 强制播放攻击动画 - 重置状态检测确保攻击动画能播放
+        this._lastFrameState = AnimationState.IDLE;
+        this._currentAnimationState = AnimationState.ATTACK;
+        this._lastFrameState = AnimationState.ATTACK;
+        
+        // 播放攻击动画，动画结束后会自动调用onAnimationFinished重置状态
         this.playAnimation(AnimationState.ATTACK, this._currentDirection);
         
-        // 在攻击动画的某个特定时间点造成伤害，这里用延迟模拟
-        this.scheduleOnce(() => {
-            this._isAttacking = false;
-            // TODO: 实现实际的攻击伤害逻辑
-            // 例如：如果是近战，检测范围内的玩家
-            // 例如：如果是远程，创建一个投掷物
-        }, 0.5); 
+        // TODO: 实现实际的攻击伤害逻辑
+        // 例如：如果是近战，检测范围内的玩家
+        // 例如：如果是远程，创建一个投掷物
     }
 
+    /**
+     * 🔥 判断是否应该使用技能
+     * @param distance 与玩家的距离
+     * @returns 是否应该使用技能
+     */
+    private shouldUseSkill(distance: number): boolean {
+        // 检查是否有技能配置
+        if (!this.data || !this.data.skills || this.data.skills.length === 0) {
+            return false;
+        }
+
+        // 遍历所有技能，检查是否有可用的
+        for (const skill of this.data.skills) {
+            if (this.canUseSkill(skill.id)) {
+                // 根据技能概率决定是否使用
+                if (Math.random() < skill.chance) {
+                    console.log(`🔥 ${this.data.name} 决定使用技能: ${skill.id} (概率: ${skill.chance * 100}%)`);
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * 🔥 检查技能是否可以使用（冷却检查）
+     * @param skillId 技能ID
+     * @returns 是否可以使用
+     */
+    private canUseSkill(skillId: string): boolean {
+        const now = Date.now() / 1000;
+        const lastUsed = this._skillCooldowns.get(skillId) || 0;
+        
+        // 获取技能配置
+        const skill = this.data?.skills?.find(s => s.id === skillId);
+        if (!skill) {
+            return false;
+        }
+
+        const cooldownElapsed = now - lastUsed;
+        const canUse = cooldownElapsed >= skill.cooldown;
+        
+        if (!canUse) {
+            const remaining = skill.cooldown - cooldownElapsed;
+            console.log(`⏰ 技能 ${skillId} 冷却中，剩余: ${remaining.toFixed(1)}秒`);
+        }
+
+        return canUse;
+    }
+
+    /**
+     * 🔥 执行技能攻击
+     * @param skillId 技能ID
+     */
+    private performSkillAttack(skillId: string): void {
+        if (!this.data) return;
+
+        // 获取技能配置
+        const skill = this.data.skills?.find(s => s.id === skillId);
+        if (!skill) {
+            console.error(`❌ 找不到技能配置: ${skillId}`);
+            return;
+        }
+
+        // 设置技能状态
+        this._isUsingSkill = true;
+        this._skillCooldowns.set(skillId, Date.now() / 1000);
+
+        // 停止移动
+        if (this._rigidbody) {
+            this._rigidbody.linearVelocity = Vec2.ZERO;
+        }
+
+        // 强制播放技能动画
+        this._lastFrameState = AnimationState.IDLE;
+        this._currentAnimationState = AnimationState.FIRE;
+        this._lastFrameState = AnimationState.FIRE;
+
+        // 播放技能动画
+        this.playAnimation(AnimationState.FIRE, this._currentDirection);
+
+        console.log(`🔥 ${this.data.name} 使用技能: ${skillId}`);
+
+        // 🔥 根据不同技能ID创建不同的技能效果
+        if (skillId === 'fireball') {
+            // 延迟创建火球，在动画播放到合适时机时触发
+            const delayTime = 0.3; // 延迟0.3秒，让释放动画播放一段时间
+            this.scheduleOnce(() => {
+                this.createFireballAttack();
+            }, delayTime);
+            console.log(`🔥 火球技能动画开始播放，${delayTime}秒后创建火球攻击`);
+        }
+    }
+
+    /**
+     * 🔥 创建火球攻击
+     */
+    private createFireballAttack(): void {
+        if (!this.playerNode || !this.playerNode.isValid) {
+            console.warn(`⚠️ 无法创建火球攻击：缺少玩家目标`);
+            return;
+        }
+
+        // 查找火球预制件
+        resources.load('Fireball', Prefab, (err, fireball) => {
+            if (err) {
+                console.error(`❌ 加载火球预制件失败:`, err);
+                return;
+            }
+
+            const fireballNode = instantiate(fireball);
+            
+            // 设置火球的父节点为场景根节点
+            const scene = director.getScene();
+            if (!scene) {
+                console.error(`❌ 无法获取当前场景`);
+                fireballNode.destroy();
+                return;
+            }
+            
+            fireballNode.setParent(scene);
+            
+            // 设置火球起始位置（巫妖位置）
+            const startPosition = this.node.worldPosition;
+            fireballNode.setWorldPosition(startPosition);
+            
+            // 设置火球目标位置（玩家位置）
+            const targetPosition = this.playerNode!.worldPosition;
+            const fireballComponent = fireballNode.getComponent('Fireball') as any;
+            
+            if (fireballComponent) {
+                // 设置火球属性
+                fireballComponent.damage = this.data?.baseAttack || 25; // 使用巫妖的攻击力
+                fireballComponent.moveSpeed = 250; // 火球移动速度（指向性攻击稍快一些）
+                fireballComponent.explosionRadius = 100; // 爆炸范围（稍大一些补偿指向性的不精确）
+                
+                // 🎯 设置为指向性攻击：火球朝着释放时玩家的位置直线飞行，不跟踪
+                const direction = new Vec2(
+                    targetPosition.x - startPosition.x,
+                    targetPosition.y - startPosition.y
+                ).normalize();
+                
+                // 重新配置瞄准系统为固定方向模式
+                if (typeof fireballComponent.setAimingConfig === 'function') {
+                    fireballComponent.setAimingConfig({
+                        mode: 'fixedDirection', // 使用固定方向而不是跟踪敌人
+                        movementMode: 'linear',
+                        fixedDirection: direction,
+                        speed: fireballComponent.moveSpeed,
+                        useWorldCoordinates: true
+                    });
+                }
+                
+                // 也设置目标位置用于距离检测
+                if (typeof fireballComponent.setTarget === 'function') {
+                    fireballComponent.setTarget(new Vec3(targetPosition.x, targetPosition.y, 0));
+                }
+                
+                console.log(`🔥 ${this.data?.name} 创建指向性火球攻击！`);
+                console.log(`  - 起始位置: (${startPosition.x.toFixed(1)}, ${startPosition.y.toFixed(1)})`);
+                console.log(`  - 目标位置: (${targetPosition.x.toFixed(1)}, ${targetPosition.y.toFixed(1)})`);
+                console.log(`  - 飞行方向: (${direction.x.toFixed(2)}, ${direction.y.toFixed(2)})`);
+                console.log(`  - 伤害: ${fireballComponent.damage}`);
+            } else {
+                console.error(`❌ 火球预制件缺少 Fireball 组件`);
+                fireballNode.destroy();
+            }
+        });
+    }
+
+    /**
+     * 受到伤害处理
+     * 处理敌人受伤的完整流程：伤害计算、动画播放、状态更新
+     * @param damage 伤害值
+     * @param attackType 攻击类型
+     * @param version 攻击版本号（防止重复伤害）
+     */
     public takeDamage(damage: number, attackType: AttackTypeValue, version: number) {
+        // 死亡或数据无效时忽略伤害
         if (this._isDead || !this.data) {
             return;
         }
 
+        // 防止重复攻击造成多次伤害
         const attackId = `${attackType}_${version}`;
         if (this._lastAttackVersions.has(attackId)) {
             return; // 重复攻击，不造成伤害
         }
         this._lastAttackVersions.set(attackId, 1);
 
+        // 扣除生命值并记录日志
         this._currentHealth -= damage;
-        this.showDamageFlash();
+        console.log(`💥 ${this.data.name} 受到 ${damage} 点伤害，剩余血量: ${this._currentHealth}/${this.data.baseHealth}`);
 
         if (this._currentHealth <= 0) {
+            // 生命值耗尽，触发死亡
             this.die();
         } else {
-            // 尝试播放受伤动画，如果动画还没加载完成则只显示伤害闪烁
-            this.tryPlayAnimation(AnimationState.HURT);
+            // 强制播放受伤动画，打断当前动画
+            // 重置状态检测以确保受伤动画强制播放
+            this._lastFrameState = AnimationState.IDLE;
+            this._currentAnimationState = AnimationState.HURT;
+            this._lastFrameState = AnimationState.HURT;
+            this.playAnimation(AnimationState.HURT, this._currentDirection);
+            
+            // 应用眩晕效果（受击硬直）
             this.applyStun();
+            
+            // 立即停止移动
+            if (this._rigidbody) {
+                this._rigidbody.linearVelocity = Vec2.ZERO;
+            }
         }
     }
 
@@ -662,22 +926,20 @@ export class EnemyController extends Component {
         return this._currentHealth;
     }
 
+    /**
+     * 应用眩晕效果
+     * 在受伤后应用短暂的眩晕状态，期间敌人无法行动
+     */
     private applyStun() {
         if (!this.data || !this.data.stunDuration) return;
+        
+        // 设置眩晕状态
         this._isStunned = true;
+        
+        // 定时恢复
         this.scheduleOnce(() => {
             this._isStunned = false;
         }, this.data.stunDuration);
-    }
-
-    private showDamageFlash() {
-        if (!this._sprite || !this.data || !this.data.damageFlashDuration) return;
-        this._sprite.color = Color.RED;
-        this.scheduleOnce(() => {
-            if (this._sprite) {
-                this._sprite.color = this._originalColor;
-            }
-        }, this.data.damageFlashDuration);
     }
 
     private die() {
@@ -687,27 +949,25 @@ export class EnemyController extends Component {
         if (this._rigidbody) this._rigidbody.linearVelocity = Vec2.ZERO;
         if (this._collider) this._collider.enabled = false;
         
+        // 强制播放死亡动画 - 重置状态检测确保死亡动画能播放
+        this._lastFrameState = AnimationState.IDLE;
+        this._currentAnimationState = AnimationState.DEATH;
+        this._lastFrameState = AnimationState.DEATH;
+        
+        // 播放死亡动画，动画结束后会自动调用fadeOutAndDestroy
         this.playAnimation(AnimationState.DEATH, this._currentDirection);
+    }
 
-        // 死亡动画播放后消失
-        const deathAnimKey = `${AnimationState.DEATH}_${this._currentDirection}`;
-        const deathFrames = this._enemyFrames.get(deathAnimKey) || this._enemyFrames.get(`${AnimationState.DEATH}_${Direction.FRONT}`);
-        const deathDuration = deathFrames ? (deathFrames.length / this.data.animationSpeed) : 1.0;
-
-        // 使用 tween 来实现延迟和渐隐
-        let uiOpacity = this.getComponent(UIOpacity);
-        if (!uiOpacity) {
-            uiOpacity = this.node.addComponent(UIOpacity);
+    /**
+     * 简化的精灵帧设置方法
+     * 直接设置精灵帧，让引擎的SizeMode机制自动处理尺寸调整
+     * @param spriteFrame 要设置的精灵帧
+     */
+    private setSpriteFrame(spriteFrame: SpriteFrame) {
+        if (this._sprite && spriteFrame) {
+            this._sprite.spriteFrame = spriteFrame;
+            // 引擎会根据Sprite组件的SizeMode自动调整UITransform尺寸
+            // 不需要手动干预
         }
-
-        tween(uiOpacity)
-            .delay(deathDuration)
-            .to(0.3, { opacity: 0 })
-            .call(() => {
-                // TODO: 通知GameManager敌人死亡，获得经验等
-                // this.gameManager.onEnemyKilled(this.data);
-                this.node.destroy();
-            })
-            .start();
     }
 }

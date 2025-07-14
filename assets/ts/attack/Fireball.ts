@@ -188,7 +188,7 @@ export class Fireball extends BaseAttack {
         if (!this._sprite || this._fireballFrames.length === 0) return;
         
         // 设置第0帧
-        this._sprite.spriteFrame = this._fireballFrames[0];
+        this.setSpriteFrame(this._sprite, this._fireballFrames[0]);
         
         // 随机旋转方向
         this._rotationDirection = Math.random() > 0.5 ? 1 : -1;
@@ -382,7 +382,8 @@ export class Fireball extends BaseAttack {
         
         // 添加Sprite组件显示爆炸动画
         const sprite = indicatorNode.addComponent(Sprite);
-        sprite.spriteFrame = this._fireballFrames[1]; // 从第1帧开始
+                        sprite.spriteFrame = this._fireballFrames[1]; // 从第1帧开始
+                (sprite as any)._isTrimmedMode = true; // 🔧 确保使用 TRIMMED 裁剪模式
         sprite.color = new Color(255, 150, 50, 200); // 橙红色半透明
         
         // 计算缩放比例，使爆炸效果覆盖爆炸范围
@@ -417,7 +418,8 @@ export class Fireball extends BaseAttack {
             }
             
             // 设置当前帧
-            sprite.spriteFrame = this._fireballFrames[currentFrame];
+                            sprite.spriteFrame = this._fireballFrames[currentFrame];
+                (sprite as any)._isTrimmedMode = true; // 🔧 确保使用 TRIMMED 裁剪模式
             console.log(`💥 爆炸范围第${currentFrame}帧`);
             currentFrame++;
             
@@ -582,6 +584,20 @@ export class Fireball extends BaseAttack {
         // 清理碰撞监听器
         if (this._collider) {
             this._collider.off(Contact2DType.BEGIN_CONTACT, this.onBeginContact, this);
+        }
+    }
+
+    /**
+     * 简化的精灵帧设置方法
+     * 直接设置精灵帧，让引擎的SizeMode机制自动处理尺寸调整
+     * @param spriteComponent 精灵组件
+     * @param spriteFrame 要设置的精灵帧
+     */
+    private setSpriteFrame(spriteComponent: Sprite, spriteFrame: SpriteFrame) {
+        if (spriteComponent && spriteFrame) {
+            spriteComponent.spriteFrame = spriteFrame;
+            // 引擎会根据Sprite组件的SizeMode自动调整UITransform尺寸
+            // 不需要手动干预
         }
     }
 } 

@@ -522,6 +522,13 @@ export class PlayerController extends Component {
         afterimageSprite.spriteFrame = this._sprite.spriteFrame;
         afterimageSprite.color = new Color(255, 255, 255, 150); // 半透明白色
         
+        // 添加残影精灵的特殊设置
+        if (afterimageSprite && this._sprite?.spriteFrame) {
+            // 🔧 确保残影也使用 TRIMMED 裁剪模式
+            afterimageSprite.spriteFrame = this._sprite.spriteFrame;
+            (afterimageSprite as any)._isTrimmedMode = true;
+        }
+
         console.log("👻 创建残影");
         
         // 残影淡出动画
@@ -885,16 +892,14 @@ export class PlayerController extends Component {
             this._currentFrameIndex = 0;
             const frameIndex = frames[0];
             if (this._playerFrames[frameIndex]) {
-                this._sprite.spriteFrame = this._playerFrames[frameIndex];
-                console.log(`🎬 开始播放${direction}方向动画，起始帧: ${frameIndex}`);
+                this.setSpriteFrame(this._playerFrames[frameIndex]);
             }
         } else {
             // 停止时显示该方向的第一帧
             this._currentFrameIndex = 0;
             const frameIndex = frames[0];
             if (this._playerFrames[frameIndex]) {
-                this._sprite.spriteFrame = this._playerFrames[frameIndex];
-                console.log(`⏸️ 停止动画，显示${direction}方向第一帧: ${frameIndex}`);
+                this.setSpriteFrame(this._playerFrames[frameIndex]);
             }
         }
     }
@@ -937,11 +942,24 @@ export class PlayerController extends Component {
                 const frameIndex = frames[this._currentFrameIndex];
                 
                 if (this._playerFrames[frameIndex]) {
-                    this._sprite.spriteFrame = this._playerFrames[frameIndex];
+                    this.setSpriteFrame(this._playerFrames[frameIndex]);
                     // 仅在调试模式下输出帧切换信息
                     // console.log(`🎞️ 切换到${this._currentDirection}方向第${this._currentFrameIndex}帧: ${frameIndex}`);
                 }
             }
+        }
+    }
+
+    /**
+     * 简化的精灵帧设置方法
+     * 直接设置精灵帧，让引擎的SizeMode机制自动处理尺寸调整
+     * @param spriteFrame 要设置的精灵帧
+     */
+    private setSpriteFrame(spriteFrame: SpriteFrame) {
+        if (this._sprite && spriteFrame) {
+            this._sprite.spriteFrame = spriteFrame;
+            // 引擎会根据Sprite组件的SizeMode自动调整UITransform尺寸
+            // 不需要手动干预
         }
     }
 }

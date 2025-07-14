@@ -2,6 +2,7 @@ import { _decorator, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, 
 import { EnemyController } from '../EnemyController';
 import { BaseAttack, AimingMode, MovementMode } from './BaseAttack';
 import { AttackSystem } from './AttackSystem';
+import { GameManager } from '../GameManager';
 
 const { ccclass, property } = _decorator;
 
@@ -233,6 +234,21 @@ export class ThunderChain extends BaseAttack {
     protected onAttackStart(): void {
         console.log("⚡ 闪电链开始释放");
         
+        // 🔧 首先确保gameManager引用存在
+        if (!this.gameManager) {
+            const scene = this.node.scene;
+            if (scene) {
+                this.gameManager = scene.getComponentInChildren(GameManager);
+                if (this.gameManager) {
+                    console.log("✅ 成功获取GameManager引用");
+                } else {
+                    console.error("❌ 无法找到GameManager，闪电链无法工作");
+                    this.destroyAttack();
+                    return;
+                }
+            }
+        }
+        
         // 🔧 强制检查闪电帧是否加载完成
         if (this._thunderFrames.length === 0) {
             console.warn("⚠️ 闪电帧未加载，强制重新初始化...");
@@ -252,23 +268,44 @@ export class ThunderChain extends BaseAttack {
         const playerPos = this.node.worldPosition;
         console.log(`⚡ 玩家位置: (${playerPos.x.toFixed(1)}, ${playerPos.y.toFixed(1)})`);
         
+        // 🔧 检查屏幕尺寸信息
+        const canvas = this.node.scene?.getChildByName('Canvas');
+        if (canvas) {
+            const canvasTransform = canvas.getComponent(UITransform);
+            if (canvasTransform) {
+                const canvasSize = canvasTransform.contentSize;
+                console.log(`📺 屏幕尺寸: ${canvasSize.width}x${canvasSize.height}`);
+                console.log(`🎯 当前最大连接距离: ${this.maxChainDistance}`);
+            }
+        }
+        
         // 手动查找第一个目标
         const allEnemies = this.getAllEnemies();
         console.log(`⚡ 找到敌人数量: ${allEnemies.length}`);
+        
+        if (this.gameManager?.activeEnemies) {
+            console.log(`📊 GameManager中的敌人数量: ${this.gameManager.activeEnemies.length}`);
+        }
         
         if (allEnemies.length > 0) {
             // 找到最近的敌人
             let nearestEnemyNode: Node | null = null;
             let minDistance = Infinity;
             
-            for (const enemyNode of allEnemies) {
-                const distance = Vec3.distance(playerPos, enemyNode.worldPosition);
-                console.log(`⚡ 检查敌人: ${enemyNode.name}, 距离: ${distance.toFixed(1)}`);
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    nearestEnemyNode = enemyNode;
-                }
-            }
+                         for (const enemyNode of allEnemies) {
+                 const distance = Vec3.distance(playerPos, enemyNode.worldPosition);
+                 const enemyPos = enemyNode.worldPosition;
+                 console.log(`⚡ 检查敌人: ${enemyNode.name}`);
+                 console.log(`  📍 敌人位置: (${enemyPos.x.toFixed(1)}, ${enemyPos.y.toFixed(1)})`);
+                 console.log(`  📏 距离: ${distance.toFixed(1)}`);
+                 console.log(`  🎯 最大连接距离: ${this.maxChainDistance}`);
+                 
+                 if (distance < minDistance) {
+                     minDistance = distance;
+                     nearestEnemyNode = enemyNode;
+                     console.log(`  ✅ 更新为最近敌人`);
+                 }
+             }
             
             // 如果找到最近的敌人，则开始闪电链
             if (nearestEnemyNode) {
@@ -399,7 +436,7 @@ export class ThunderChain extends BaseAttack {
         
         // 设置闪电帧
         const randomFrameIndex = Math.floor(Math.random() * this._thunderFrames.length);
-        sprite.spriteFrame = this._thunderFrames[randomFrameIndex];
+                    this.setSpriteFrame(sprite, this._thunderFrames[randomFrameIndex]);
         
         // 🔧 设置固定的闪电颜色 - 不再变化
         sprite.color = new Color(255, 255, 255, 255); // 固定亮白色
@@ -486,7 +523,7 @@ export class ThunderChain extends BaseAttack {
             
             // 随机选择帧（增加闪烁效果）
             const randomFrameIndex = Math.floor(Math.random() * this._thunderFrames.length);
-            sprite.spriteFrame = this._thunderFrames[randomFrameIndex];
+                            this.setSpriteFrame(sprite, this._thunderFrames[randomFrameIndex]);
             
             currentFrame++;
             
@@ -572,5 +609,19 @@ export class ThunderChain extends BaseAttack {
         this.cleanupLightningNodePool();
         
         console.log("⚡ 闪电链清理完成");
+    }
+
+    /**
+     * 简化的精灵帧设置方法
+     * 直接设置精灵帧，让引擎的SizeMode机制自动处理尺寸调整
+     * @param spriteComponent 精灵组件
+     * @param spriteFrame 要设置的精灵帧
+     */
+    private setSpriteFrame(spriteComponent: Sprite, spriteFrame: SpriteFrame) {
+        if (spriteComponent && spriteFrame) {
+            spriteComponent.spriteFrame = spriteFrame;
+            // 引擎会根据Sprite组件的SizeMode自动调整UITransform尺寸
+            // 不需要手动干预
+        }
     }
 } 

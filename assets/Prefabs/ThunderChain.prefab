@@ -153,7 +153,7 @@
     "damage": 40,
     "maxChainCount": 5,
     "maxChainDistance": 20000,
-    "lightningDuration": 0.8,
+    "lightningDuration": 5.0,
     "animationFrameRate": 12,
     "damageDecay": 0.8,
     "_id": ""

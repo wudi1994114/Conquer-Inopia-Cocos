@@ -26,7 +26,7 @@ export class GameManager extends Component {
     public spawnBuffer: number = 50;
     
     @property({ tooltip: '屏幕上允许存在的最大敌人数量' })
-    public maxEnemies: number = 5;
+    public maxEnemies: number = 1;
 
     @property({ tooltip: '目标更新间隔（秒）' })
     public targetUpdateInterval: number = 0.15; // 每150ms更新一次目标
