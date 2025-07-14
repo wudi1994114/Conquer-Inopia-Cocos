@@ -275,6 +275,152 @@ export const enemyDatabase: Record<string, EnemyData> = {
     },
     
     // ===============================
+    // 测试专用超大怪物系列 - 用于测试系统
+    // ===============================
+    'ent_test_giant': {
+        id: 'ent_test_giant',
+        name: '巨型测试树人',
+        category: EnemyCategory.Normal,
+        
+        // 视觉配置
+        plistUrl: 'monster/ent',        
+        assetNamePrefix: 'Ent1',        
+        nodeScale: 12.8,                // 3.2 * 4 = 12.8
+        
+        // 基础属性 - 比普通树人大4倍
+        baseHealth: 400,                // 100 * 4
+        baseAttack: 40,                 // 10 * 4
+        baseDefense: 20,                // 5 * 4
+        moveSpeed: 12,                  // 3 * 4
+        
+        // 攻击配置 - 比例放大
+        attackRange: 240,               // 60 * 4
+        attackInterval: 1.0,            // 攻击更频繁用于测试
+        
+        // 动画配置
+        animationSpeed: 12,             // 稍快一些
+        
+        // AI配置
+        ai: AiBehavior.Melee,           
+        detectionRange: 2400,           // 1200 * 2（检测范围适度放大）
+        pursuitRange: 3000,             // 1500 * 2
+        
+        // 物理配置 - 比例放大
+        colliderSize: { width: 160, height: 240 }, // 40*4, 60*4
+        
+        // 奖励配置
+        expReward: 40,                  // 10 * 4
+        
+        // 反馈配置
+        stunDuration: 0.5,              
+        damageFlashDuration: 0.2        
+    },
+    
+    'lich_test_giant': {
+        id: 'lich_test_giant',
+        name: '巨型测试巫妖',
+        category: EnemyCategory.Elite,
+        
+        // 视觉配置
+        plistUrl: 'monster/lich',       
+        assetNamePrefix: 'Lich2',       
+        nodeScale: 16.0,                // 4.0 * 4 = 16.0
+        
+        // 基础属性 - 比精英巫妖大4倍
+        baseHealth: 2000,               // 500 * 4
+        baseAttack: 100,                // 25 * 4
+        baseDefense: 40,                // 10 * 4
+        moveSpeed: 10,                  // 2.5 * 4
+        
+        // 攻击配置 - 比例放大
+        attackRange: 1200,              // 300 * 4
+        attackInterval: 1.5,            // 攻击更频繁用于测试
+        
+        // 动画配置
+        animationSpeed: 14,             
+        
+        // AI配置
+        ai: AiBehavior.Ranged,          
+        detectionRange: 2400,           // 1200 * 2
+        pursuitRange: 3000,             // 1500 * 2
+        
+        // 物理配置 - 比例放大
+        colliderSize: { width: 200, height: 280 }, // 50*4, 70*4
+        
+        // 技能配置
+        skills: [
+            { 
+                id: 'fireball',         
+                level: 3,               // 提升技能等级
+                cooldown: 3,            // 更短冷却用于测试
+                chance: 0.9             // 更高概率
+            }
+        ],
+        
+        // 奖励配置
+        expReward: 200,                 // 50 * 4
+        
+        // 反馈配置
+        stunDuration: 0.3,              
+        damageFlashDuration: 0.2        
+    },
+    
+    'ent_test_mega_boss': {
+        id: 'ent_test_mega_boss',
+        name: '超巨型测试树精',
+        category: EnemyCategory.Boss,
+        
+        // 视觉配置
+        plistUrl: 'monster/ent',        
+        assetNamePrefix: 'Ent3',        
+        nodeScale: 24.0,                // 6.0 * 4 = 24.0
+        
+        // 基础属性 - 比Boss树精大4倍
+        baseHealth: 32000,              // 8000 * 4
+        baseAttack: 320,                // 80 * 4
+        baseDefense: 160,               // 40 * 4
+        moveSpeed: 16,                  // 4 * 4
+        
+        // 攻击配置 - 比例放大
+        attackRange: 320,               // 80 * 4
+        attackInterval: 1.2,            // 更频繁用于测试
+        
+        // 动画配置
+        animationSpeed: 16,             
+        
+        // AI配置
+        ai: AiBehavior.Melee,           
+        detectionRange: 3000,           // 1500 * 2
+        pursuitRange: 4000,             // 2000 * 2
+        
+        // 物理配置 - 比例放大
+        colliderSize: { width: 320, height: 480 }, // 80*4, 120*4
+        
+        // 技能配置 - 增强版
+        skills: [
+            { 
+                id: 'stomp',            
+                level: 3,               // 提升技能等级
+                cooldown: 6,            // 更短冷却
+                chance: 1.0             
+            },
+            { 
+                id: 'summon_minions',   
+                level: 3,               
+                cooldown: 12,           // 更短冷却
+                chance: 1.0             
+            }
+        ],
+        
+        // 奖励配置
+        expReward: 2000,                // 500 * 4
+        
+        // 反馈配置
+        stunDuration: 0.1,              
+        damageFlashDuration: 0.15       
+    },
+
+    // ===============================
     // 扩展区域 - 添加新敌人请参考以下模板
     // ===============================
     /* 

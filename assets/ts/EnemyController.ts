@@ -237,23 +237,12 @@ export class EnemyController extends Component {
             return;
         }
 
-        // 🔧 立即检查敌人的基本状态
-        console.log(`🔍 敌人调试信息 - ${this.data.name}:`);
-        console.log(`  - 节点激活: ${this.node.active}`);
-        console.log(`  - 节点位置: (${this.node.position.x.toFixed(1)}, ${this.node.position.y.toFixed(1)})`);
-        console.log(`  - 节点缩放: ${this.node.scale.x.toFixed(2)}`);
-        console.log(`  - 精灵组件: ${this._sprite ? '存在' : '不存在'}`);
-        if (this._sprite) {
-            console.log(`  - 精灵激活: ${this._sprite.enabled}`);
-            console.log(`  - 精灵帧: ${this._sprite.spriteFrame ? '存在' : 'null'}`);
-            console.log(`  - 精灵颜色: (${this._sprite.color.r}, ${this._sprite.color.g}, ${this._sprite.color.b}, ${this._sprite.color.a})`);
-        }
-
         // 🚀 优先使用预加载的资源
         const atlas = resources.get(this.data.plistUrl, SpriteAtlas);
-        
+
         if (atlas) {
             console.log(`✅ 使用预加载的敌人图集: ${this.data.plistUrl}`);
+            // 🔧 修复：使用预加载资源时也要处理图集数据
             this.processEnemyAtlas(atlas);
         } else {
             console.log(`🔄 预加载资源不可用，异步加载敌人图集: ${this.data.plistUrl}`);
